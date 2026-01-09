@@ -1,0 +1,144 @@
+x-airflow-common:
+  &airflow-common
+  build: .
+  env_file:
+    - .env
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
+    AIRFLOW_VAR_TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+    AIRFLOW_VAR_TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: 30 
+    AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: 10
+    AIRFLOW__SCHEDULER__STANDALONE_DAG_PROCESSOR: "true"
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://airflow-api-server:8080/execution"
+    AIRFLOW__CORE__INTERNAL_API_URL: "http://airflow-api-server:8080"
+    AIRFLOW__API_AUTH__JWT_SECRET: "a-very-secure-jwt-secret-key-that-must-be-statically-defined-across-all-containers"
+    AIRFLOW__SECRETS__SECRET_KEY: "a-very-secure-secret-key-for-flask"
+  volumes:
+    # Mount entire project to Airflow working directory
+    - ./dags:/opt/airflow/dags
+    - ./scripts:/opt/airflow/scripts
+    - ./dbt:/opt/airflow/dbt
+    - ./data:/opt/airflow/data
+    - ./.env:/opt/airflow/.env
+  depends_on:
+    postgres-airflow:
+      condition: service_healthy
+
+services:
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    mem_limit: 512m
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+
+  minio-mc:
+    image: minio/mc
+    container_name: minio-mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until (/usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin) do echo 'Waiting for MinIO...' && sleep 1; done;
+      /usr/bin/mc mb --ignore-existing myminio/ecommerce-bronze;
+      /usr/bin/mc mb --ignore-existing myminio/ecommerce-silver;
+      exit 0;
+      "
+  postgres-airflow:
+    image: postgres:15
+    container_name: postgres-airflow
+    mem_limit: 256m
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - postgres-db-airflow:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow-init
+    command: >
+      bash -c "airflow db migrate"
+    depends_on:
+        postgres-airflow:
+          condition: service_healthy
+
+
+  airflow-api-server:
+    <<: *airflow-common
+    container_name: airflow-api-server
+    mem_limit: 768m
+    command: api-server
+    ports:
+      - "8080:8080"
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/version"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    container_name: airflow-dag-processor
+    mem_limit: 512m
+    command: dag-processor
+    restart: always
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: airflow-scheduler
+    mem_limit: 2g
+    command: scheduler
+    restart: always
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-api-server:
+        condition: service_healthy
+        
+  dbt-docs:
+    image: python:3.12-slim
+    container_name: dbt-docs
+    mem_limit: 128m
+    volumes:
+      - ./dbt/target:/dbt_docs:ro
+    command: python3 -m http.server --directory /dbt_docs 8081
+    ports:
+      - "8081:8081"
+    restart: always
+
+volumes:
+  postgres-db-airflow:
+  minio_data:
