@@ -1,29 +1,34 @@
 import os
+import sys
 import logging
+from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from utils.config import LOGS_DIR
 
-def get_logger(name: str) -> logging.Logger:
+def get_logger(name: str, level: int = logging.INFO) -> logging.Logger:
     """
-    Returns a configured standard Logger that logs both to console (stdout)
-    and a rotating log file under the logs/ directory.
+    Returns a standard Logger configured to write to both stdout
+    and a rotating log file in the logs directory.
     """
     logger = logging.getLogger(name)
+    logger.setLevel(level)
     
-    # Avoid duplicate handlers if logger is retrieved multiple times
     if not logger.handlers:
-        logger.setLevel(logging.INFO)
-        formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [%(name)s]: %(message)s')
+        formatter = logging.Formatter(
+            '[%(asctime)s] [%(levelname)s] [%(name)s]: %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
         
-        # 1. Console Handler (for Docker and Airflow capturing)
-        console_handler = logging.StreamHandler()
+        console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
         
-        # 2. Rotating File Handler (for log persistence)
-        log_file_path = os.path.join(LOGS_DIR, "pipeline.log")
-        file_handler = RotatingFileHandler(log_file_path, maxBytes=10*1024*1024, backupCount=5, encoding="utf-8")
+        log_dir = Path(LOGS_DIR)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file_path = log_dir / "pipeline.log"
+        file_handler = RotatingFileHandler(str(log_file_path), maxBytes=10*1024*1024, backupCount=5, encoding="utf-8")
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
         
+    logger.propagate = False
     return logger
