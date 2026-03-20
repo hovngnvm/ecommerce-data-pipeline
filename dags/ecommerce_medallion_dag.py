@@ -87,13 +87,13 @@ with DAG(
 
     dbt_run_task = BashOperator(
         task_id='dbt_run_star_schema',
-        bash_command=f'cd {DBT_DIR} && dbt run',
+        bash_command=f'cd {DBT_DIR} && dbt run --profiles-dir .',
         dag=dag
     )
 
     dbt_test_task = BashOperator(
         task_id='dbt_test_data_quality',
-        bash_command=f'cd {DBT_DIR} && dbt test',
+        bash_command=f'cd {DBT_DIR} && dbt test --profiles-dir .',
         dag=dag
 )
     
