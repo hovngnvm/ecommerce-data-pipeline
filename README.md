@@ -68,7 +68,7 @@ ecommerce-data-pipeline/
 │   ├── spark/                     # PySpark transformation scripts
 │   │   ├── bronze_to_silver_api.py
 │   │   ├── bronze_to_silver_events.py
-│   │   └── silver_to_postgres.py
+│   │   └── silver_to_rdbms.py
 │   └── python/
 │       └── fetch_exchange_rates.py
 │

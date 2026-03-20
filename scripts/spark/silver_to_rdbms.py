@@ -13,7 +13,7 @@ def main():
     exchange_rates_df = spark.read.parquet(exchange_rate_silver_path)
     
     # DB connection info
-    db_url = f"jdbc:postgresql://localhost:{os.environ.get('POSTGRES_PORT')}/ecommerce"
+    db_url = f"jdbc:postgresql://localhost:{os.environ.get('POSTGRES_PORT')}/{os.environ.get('POSTGRES_DB')}"
     db_properties = {
         "user": os.environ.get("POSTGRES_USER"),
         "password": os.environ.get("POSTGRES_PASSWORD"),
