@@ -1,0 +1,9 @@
+.env
+
+# --- Python ---
+dags/__pycache__
+
+# --- Data ---
+data/**
+!data/**/
+!data/**/.gitkeep

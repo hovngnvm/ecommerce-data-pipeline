@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  postgres-dw:
+    image: postgres:15
+    container_name: postgres-dw
+    restart: always
+    ports:
+      - "${POSTGRES_PORT}:5432" # can change the PORT in .env file
+    env_file:
+      - .env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
