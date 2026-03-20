@@ -98,5 +98,6 @@ with DAG(
 )
     
 # Define task dependencies to create the DAG flow
-ingest_api_task >> events_bronze_to_silver_task >> api_bronze_to_silver_task >> \
-start_postgres_task >> silver_to_rdbms_task >> dbt_run_task >> dbt_test_task
+ingest_api_task >> api_bronze_to_silver_task
+events_bronze_to_silver_task
+[events_bronze_to_silver_task, api_bronze_to_silver_task] >> start_postgres_task >> silver_to_rdbms_task >> dbt_run_task >> dbt_test_task
