@@ -12,6 +12,7 @@ SCRIPTS_DIR = os.path.join(PROJECT_DIR, "scripts")
 
 BRONZE_PATH = os.path.join(PROJECT_DIR, "data", "bronze")
 SILVER_PATH = os.path.join(PROJECT_DIR, "data", "silver")
+ENV_CMD = f"set -a && source {PROJECT_DIR}/.env && set +a && "
 
 def send_telegram_alert(context):
     # Get token and chat_id from Airflow Variables
@@ -80,20 +81,20 @@ with DAG(
 
     silver_to_rdbms_task = BashOperator(
         task_id='silver_to_rdbms',
-        bash_command=f'spark-submit --master "local[*]" --driver-memory 4G --packages org.postgresql:postgresql:42.6.0 {os.path.join(SCRIPTS_DIR, "spark", "silver_to_rdbms.py")} {os.path.join(SILVER_PATH, "ecommerce_events")} {os.path.join(SILVER_PATH, "exchange_rates")}'
+        bash_command=f'{ENV_CMD} spark-submit --master "local[*]" --driver-memory 4G --packages org.postgresql:postgresql:42.6.0 {os.path.join(SCRIPTS_DIR, "spark", "silver_to_rdbms.py")} {os.path.join(SILVER_PATH, "ecommerce_events")} {os.path.join(SILVER_PATH, "exchange_rates")}'
     )
 
     DBT_DIR = os.path.join(PROJECT_DIR, "ecommerce_dbt")
 
     dbt_run_task = BashOperator(
         task_id='dbt_run_star_schema',
-        bash_command=f'cd {DBT_DIR} && dbt run --profiles-dir .',
+        bash_command=f'{ENV_CMD} cd {DBT_DIR} && dbt run --profiles-dir .',
         dag=dag
     )
 
     dbt_test_task = BashOperator(
         task_id='dbt_test_data_quality',
-        bash_command=f'cd {DBT_DIR} && dbt test --profiles-dir .',
+        bash_command=f'{ENV_CMD} cd {DBT_DIR} && dbt test --profiles-dir .',
         dag=dag
 )
     
