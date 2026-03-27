@@ -1,42 +1,41 @@
 import os
 import sys
+from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DoubleType
 from pyspark.sql.functions import col, to_timestamp, to_date, split
+from delta.tables import DeltaTable
 
-# Ensure scripts directory is in sys.path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
+from utils.config import BRONZE_BUCKET, SILVER_DELTA_PATH, QUARANTINE_PATH
 from utils.logger import get_logger
 from utils.spark import get_spark_session
 from utils.db import get_jdbc_config
 
 logger = get_logger("bronze_to_silver")
 
-def main():
-    if len(sys.argv) < 2:
-        logger.error("Missing run date argument YYYY-MM-DD")
-        sys.exit(1)
-        
-    run_date = sys.argv[1] # e.g. "2020-01-01"
+def run_bronze_to_silver(run_date: str, spark: SparkSession | None = None) -> None:
+    """
+    Cleans Bronze clickstream Parquet, quarantines invalid rows,
+    enriches with Neon Postgres CRM loyalty data, and upserts into Silver Delta Table.
+    """
+    if not run_date:
+        raise ValueError("Missing run date argument YYYY-MM-DD")
+
     year = run_date[:4]
     month = run_date[5:7]
     day = run_date[8:10]
 
-    # Initialize Spark Session via shared utility
-    logger.info(f"Initializing Spark Session for run date: {run_date}...")
-    spark = get_spark_session(f"ECommerce_Bronze_To_Silver_{run_date}", "1536M")
+    input_path = f"s3a://{BRONZE_BUCKET}/year={year}/month={month}/day={day}/*.parquet"
+    should_stop_spark = False
 
-    # Import Delta Table after Spark Session is created
-    from delta.tables import DeltaTable
+    if spark is None:
+        logger.info(f"Initializing Spark Session for run date: {run_date}...")
+        spark = get_spark_session(f"ECommerce_Bronze_To_Silver_{run_date}", "1536M")
+        should_stop_spark = True
 
-    # Input/Output paths
-    INPUT_PATH = f"s3a://ecommerce-bronze/year={year}/month={month}/day={day}/*.parquet"
-    SILVER_DELTA_PATH = "s3a://ecommerce-silver/ecommerce_events"
-    QUARANTINE_PATH = "s3a://ecommerce-silver/quarantine"
-
-    # Define exact schema for Bronze Clickstream
     schema = StructType([
         StructField("event_time", StringType(), True),
         StructField("event_type", StringType(), True),
@@ -50,16 +49,13 @@ def main():
     ])
 
     try:
-        # Read raw Parquet data from MinIO Bronze
-        logger.info(f"Reading clickstream data from {INPUT_PATH}...")
-        raw_df = spark.read.schema(schema).parquet(INPUT_PATH)
+        logger.info(f"Reading clickstream data from {input_path}...")
+        raw_df = spark.read.schema(schema).parquet(input_path)
 
-        # Parse event timestamps and date
         parsed_df = raw_df \
             .withColumn("event_time_parsed", to_timestamp(col("event_time"), "yyyy-MM-dd HH:mm:ss z")) \
             .withColumn("event_date", to_date(col("event_time_parsed")))
 
-        # 4. Quarantine: rows where critical fields are NULL
         na_df = parsed_df.filter(
             col("event_time_parsed").isNull() | 
             col("event_type").isNull() | 
@@ -68,7 +64,6 @@ def main():
             col("price").isNull()
         ).drop("event_time_parsed", "event_date")
 
-        # Clean: rows where critical fields are valid
         clean_df = parsed_df \
             .filter(
                 col("event_time_parsed").isNotNull() & 
@@ -84,7 +79,6 @@ def main():
             .fillna({"brand": "unknown", "category": "unknown", "sub_category": "unknown"}) \
             .drop("category_code")
 
-        # Connect and fetch user loyalty data from Neon Postgres CRM via JDBC
         logger.info("Fetching CRM user profiles from Neon Postgres via JDBC...")
         db_url, db_properties = get_jdbc_config()
         
@@ -94,17 +88,14 @@ def main():
             properties=db_properties
         ).select("user_id", "loyalty_tier", "acquisition_channel")
 
-        # Join Clickstream with CRM data
         logger.info("Performing LEFT JOIN with CRM User Loyalty data...")
         enriched_df = clean_df.join(crm_df, on="user_id", how="left")
 
-        # Fill missing loyalty info with defaults
         enriched_df = enriched_df.fillna({
             "loyalty_tier": "Regular",
             "acquisition_channel": "Organic"
         })
 
-        # Write Quarantine rows to MinIO Silver
         na_count = na_df.count()
         if na_count > 0:
             logger.warning(f"Writing {na_count} quarantined rows to {QUARANTINE_PATH}...")
@@ -113,20 +104,19 @@ def main():
         # Deduplicate to prevent MultipleSourceRowMatchingTargetRow exception on MERGE
         enriched_df_clean = enriched_df.dropDuplicates(["user_session", "event_time", "product_id", "event_type"])
 
-        # Write/Merge clean enriched data to MinIO Silver using Delta Lake
         logger.info(f"Writing Silver data to Delta Table at {SILVER_DELTA_PATH}...")
         
         if DeltaTable.isDeltaTable(spark, SILVER_DELTA_PATH):
-            logger.info("    Delta table exists. Performing MERGE (Upsert)...")
-            deltaTable = DeltaTable.forPath(spark, SILVER_DELTA_PATH)
-            deltaTable.alias("target").merge(
-                source = enriched_df_clean.alias("source"),
-                condition = "target.user_session = source.user_session AND target.event_time = source.event_time AND target.product_id = source.product_id AND target.event_type = source.event_type"
+            logger.info("Delta table exists. Performing MERGE (Upsert)...")
+            delta_table = DeltaTable.forPath(spark, SILVER_DELTA_PATH)
+            delta_table.alias("target").merge(
+                source=enriched_df_clean.alias("source"),
+                condition="target.user_session = source.user_session AND target.event_time = source.event_time AND target.product_id = source.product_id AND target.event_type = source.event_type"
             ).whenMatchedUpdateAll() \
              .whenNotMatchedInsertAll() \
              .execute()
         else:
-            logger.info("    Delta table not found. Writing new partitioned Delta Table...")
+            logger.info("Delta table not found. Writing new partitioned Delta Table...")
             enriched_df_clean.write \
                 .format("delta") \
                 .mode("overwrite") \
@@ -135,12 +125,22 @@ def main():
 
         logger.info("PySpark Bronze to Silver pipeline ran successfully!")
 
+    finally:
+        if should_stop_spark and spark is not None:
+            spark.stop()
+            logger.info("Spark Session stopped.")
+
+def main() -> None:
+    if len(sys.argv) < 2:
+        logger.error("Usage: python bronze_to_silver.py YYYY-MM-DD")
+        sys.exit(1)
+        
+    run_date = sys.argv[1]
+    try:
+        run_bronze_to_silver(run_date)
     except Exception as e:
         logger.error(f"PySpark pipeline failed: {e}")
         sys.exit(1)
-    finally:
-        spark.stop()
-        logger.info("Spark Session stopped.")
 
 if __name__ == "__main__":
     main()

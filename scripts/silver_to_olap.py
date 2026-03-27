@@ -3,26 +3,32 @@ import sys
 import duckdb
 import pandas as pd
 
-# Ensure scripts directory is in sys.path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
-from utils.config import PROJECT_ROOT, MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, STAGING_DIR
+from utils.config import (
+    DUCKDB_PATH,
+    MINIO_ENDPOINT,
+    MINIO_ACCESS_KEY,
+    MINIO_SECRET_KEY,
+    STAGING_DIR
+)
 from utils.logger import get_logger
 from utils.db import get_db_connection
 
 logger = get_logger("silver_to_olap")
 
-def main():
-    run_date = sys.argv[1] if len(sys.argv) > 1 else None  # e.g. "2020-01-01"
-
-    DUCKDB_PATH = os.path.join(PROJECT_ROOT, "data", "gold_warehouse.duckdb")
-    logger.info(f"Connecting to DuckDB Data Warehouse at: {DUCKDB_PATH}")
-    con = duckdb.connect(DUCKDB_PATH)
+def run_silver_to_olap(run_date: str | None = None, target_duckdb_path: str | None = None) -> int:
+    """
+    Ingests cleaned Silver event data and CRM loyalty profiles into DuckDB OLAP Data Warehouse.
+    Supports both full-sync and daily partition incremental loading.
+    """
+    db_path = target_duckdb_path or DUCKDB_PATH
+    logger.info(f"Connecting to DuckDB Data Warehouse at: {db_path}")
+    con = duckdb.connect(db_path)
 
     try:
-        # 1. Fetch CRM users from Neon Postgres for LEFT JOIN
         logger.info("Fetching CRM users from Neon Postgres...")
         crm_df = None
         with get_db_connection() as conn:
@@ -39,7 +45,6 @@ def main():
         con.execute("CREATE TABLE crm.user_loyalty (user_id INTEGER PRIMARY KEY, loyalty_tier VARCHAR, signup_date DATE, acquisition_channel VARCHAR);")
         con.execute("INSERT INTO crm.user_loyalty SELECT * FROM crm_users_df;")
 
-        # 2. Ensure schema silver and table ecommerce_events exist
         logger.info("Ensuring schema 'silver' and table 'silver.ecommerce_events' exist in DuckDB...")
         con.execute("CREATE SCHEMA IF NOT EXISTS silver;")
         con.execute("""
@@ -58,7 +63,6 @@ def main():
             );
         """)
 
-        # 3. Handle Idempotency / Incremental partitioning
         if run_date:
             logger.info(f"Deleting pre-existing records for date {run_date} in DuckDB...")
             con.execute("DELETE FROM silver.ecommerce_events WHERE CAST(event_time AS DATE) = CAST(? AS DATE);", [run_date])
@@ -68,11 +72,11 @@ def main():
             con.execute("TRUNCATE TABLE silver.ecommerce_events;")
             date_filter_sql = ""
 
-        # 4. Perform direct ingestion from S3 Silver Parquet or Local Staging fallback
-        logger.info("Configuring DuckDB S3 secret for Silver MinIO Lake access...")
+        logger.info("Configuring DuckDB S3 credentials for Silver MinIO Lake access...")
         try:
             con.execute("INSTALL httpfs; LOAD httpfs;")
-            con.execute(f"SET s3_endpoint='{MINIO_ENDPOINT.replace('http://', '').replace('https://', '')}';")
+            endpoint_clean = MINIO_ENDPOINT.replace('http://', '').replace('https://', '')
+            con.execute(f"SET s3_endpoint='{endpoint_clean}';")
             con.execute(f"SET s3_access_key_id='{MINIO_ACCESS_KEY}';")
             con.execute(f"SET s3_secret_access_key='{MINIO_SECRET_KEY}';")
             con.execute("SET s3_use_ssl=false;")
@@ -80,7 +84,7 @@ def main():
             parquet_source = "s3://ecommerce-silver/**/*.parquet"
             logger.info("Using S3 Silver Delta/Parquet lake as source: s3://ecommerce-silver/")
         except Exception as s3_err:
-            logger.warning(f"Could not load DuckDB S3 extension ({s3_err}), falling back to local staging.")
+            logger.warning(f"Could not configure DuckDB S3 extension ({s3_err}), falling back to local staging.")
             parquet_source = os.path.join(STAGING_DIR, "**", "*.parquet").replace('\\', '/')
 
         logger.info(f"Reading Silver Event logs from {parquet_source} and joining with CRM data...")
@@ -110,15 +114,19 @@ def main():
 
         total_records = con.execute("SELECT COUNT(*) FROM silver.ecommerce_events;").fetchone()[0]
         logger.info(f"Successfully synced DuckDB 'silver.ecommerce_events'. Total records: {total_records:,}")
+        return total_records
 
-    except Exception as err:
-        logger.error(f"Silver to DuckDB sync failed: {err}")
-        con.close()
-        sys.exit(1)
     finally:
         con.close()
 
-    logger.info("Silver to OLAP sync completed successfully.")
+def main() -> None:
+    run_date = sys.argv[1] if len(sys.argv) > 1 else None
+    try:
+        run_silver_to_olap(run_date)
+        logger.info("Silver to OLAP sync completed successfully.")
+    except Exception as err:
+        logger.error(f"Silver to DuckDB sync failed: {err}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
