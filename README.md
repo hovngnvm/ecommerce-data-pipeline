@@ -35,19 +35,13 @@ An end-to-end **Data Engineering pipeline** that processes e-commerce clickstrea
           │  dbt: Star Schema modeling + data quality tests  │
           │     fact_sales, dim_users, dim_products          │
           └──────────────────────────────────────────────────┘
-                                   │
-          ┌────────────────────────▼────────────────────────┐
-          │                     Metabase                    │
-          │            BI Dashboards & Reporting            │
-          └─────────────────────────────────────────────────┘
 ```
 
-* **Orchestration:** ![Apache Airflow](https://img.shields.io/badge/Apache%20Airflow-3.1-017CEE?style=flat&logo=apacheairflow&logoColor=white)
-* **Data Processing:** ![Apache Spark](https://img.shields.io/badge/Apache%20Spark-4.0-E25A1C?style=flat&logo=apachespark&logoColor=white)
-* **Data Modeling & Testing:** ![dbt](https://img.shields.io/badge/dbt-1.10-FF694B?style=flat&logo=dbt&logoColor=white)
-* **Data Warehouse:** ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?style=flat&logo=postgresql&logoColor=white)
-* **Alerting / Monitoring:** Telegram Bot API
-* **Visualization:** Metabase
+- **Orchestration:** ![Apache Airflow](https://img.shields.io/badge/Apache%20Airflow-3.1-017CEE?style=flat&logo=apacheairflow&logoColor=white)
+- **Data Processing:** ![Apache Spark](https://img.shields.io/badge/Apache%20Spark-4.0-E25A1C?style=flat&logo=apachespark&logoColor=white)
+- **Data Modeling & Testing:** ![dbt](https://img.shields.io/badge/dbt-1.10-FF694B?style=flat&logo=dbt&logoColor=white)
+- **Data Warehouse:** ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?style=flat&logo=postgresql&logoColor=white)
+- **Alerting / Monitoring:** Telegram Bot API
 
 ## 🗂️ Data Source
 
@@ -64,7 +58,7 @@ ecommerce-data-pipeline/
 ├── dags/                          # Airflow DAG definitions
 │   └── ecommerce_medallion_dag.py
 │
-├── scripts/         
+├── scripts/
 │   ├── spark/                     # PySpark transformation scripts
 │   │   ├── bronze_to_silver_api.py
 │   │   ├── bronze_to_silver_events.py
@@ -96,40 +90,46 @@ ecommerce-data-pipeline/
 ## ⚙️ Pipeline Workflow
 
 ### 1. Bronze — Raw Ingestion
+
 - Simulates raw e-commerce event logs (CSV/JSON)
 - Fetches historical exchange rates via **Frankfurter API** using Python `requests`
 - Data stored as-is for full auditability
 
 ### 2. Silver — Transformation (PySpark)
+
 - Schema casting & type enforcement
 - Null value handling & deduplication
 - Invalid records routed to `/quarantine`
 - Output: **Parquet**, partitioned by `event_date`
 
 ### 3. Load — Postgres
+
 - Cleaned Silver data loaded into **PostgreSQL** via **Spark JDBC**
 
 ### 4. Gold — Modeling (dbt)
+
 - Builds **Star Schema**: `fact_sales`, `dim_users`, `dim_products`
 - `dbt test` enforces: **non-null**, **unique**, **referential integrity**
 
 ### 5. DataOps & Monitoring
+
 - Full pipeline scheduled **daily** via **Airflow**
 - **Telegram Bot** pushes real-time failure alerts with execution context and exception trace
 
 ## 🚀 Key Engineering Highlights
 
-| Feature | Details |
-|---|---|
-| **Dynamic Paths** | Eliminated hardcoded paths using `os.path` + `sys.argv` — 100% portable |
-| **Security** | Credentials decoupled via Airflow `Variables` + `.env` — never in codebase |
-| **Fault Tolerance** | Airflow `execution_timeout` prevents deadlocks; quarantine zone captures bad records |
-| **Data Quality** | dbt `relationships`, `not_null`, `unique` tests run automatically on every pipeline run |
-| **Partitioning** | Silver Parquet files partitioned by `event_date` for optimized I/O on large datasets |
+| Feature             | Details                                                                                 |
+| ------------------- | --------------------------------------------------------------------------------------- |
+| **Dynamic Paths**   | Eliminated hardcoded paths using `os.path` + `sys.argv` — 100% portable                 |
+| **Security**        | Credentials decoupled via Airflow `Variables` + `.env` — never in codebase              |
+| **Fault Tolerance** | Airflow `execution_timeout` prevents deadlocks; quarantine zone captures bad records    |
+| **Data Quality**    | dbt `relationships`, `not_null`, `unique` tests run automatically on every pipeline run |
+| **Partitioning**    | Silver Parquet files partitioned by `event_date` for optimized I/O on large datasets    |
 
 ## 🛠️ How to Run
 
 ### Prerequisites
+
 - Python 3.10+
 - Docker & Docker Compose
 - Apache Spark 4.0 + Java JDK 11+
@@ -158,6 +158,7 @@ cp .env.example .env
 ```
 
 `.env.example`:
+
 ```env
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=your_password
