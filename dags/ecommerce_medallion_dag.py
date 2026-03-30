@@ -7,18 +7,19 @@ from datetime import datetime, timedelta
 # /dags/ecommerce_medallion_dag.py
 DAG_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(DAG_DIR)
-
 SCRIPTS_DIR = os.path.join(PROJECT_DIR, "scripts")
-
 BRONZE_PATH = os.path.join(PROJECT_DIR, "data", "bronze")
 SILVER_PATH = os.path.join(PROJECT_DIR, "data", "silver")
-ENV_CMD = f"set -a && source {PROJECT_DIR}/.env && set +a && "
+DBT_DIR = os.path.join(PROJECT_DIR, "ecommerce_dbt")
 
 def send_telegram_alert(context):
     # Get token and chat_id from Airflow Variables
-    bot_token = Variable.get('telegram_bot_token')
-    chat_id = Variable.get('telegram_chat_id')
+    bot_token = Variable.get('telegram_bot_token', default_var='dummy_token')
+    chat_id = Variable.get('telegram_chat_id', default_var='dummy_chat_id')
     
+    if not bot_token or not chat_id:
+        return
+
     # Get failed task info from Airflow context
     task_id = context.get('task_instance').task_id
     execution_date = context.get('execution_date')
@@ -27,7 +28,7 @@ def send_telegram_alert(context):
     exception = context.get('exception')
     error_reason = str(exception)[:500]
     
-    message = f"🚨 AIRFLOW ALERT 🚨\nFailed Task: {task_id}\nExecution Date: {execution_date}\nError: {error_reason}"
+    message = f"!!! AIRFLOW ALERT !!!\nFailed Task: {task_id}\nExecution Date: {execution_date}\nError: {error_reason}"
     
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {
@@ -35,9 +36,12 @@ def send_telegram_alert(context):
         'text': message,
         'parse_mode': 'HTML'
     }
-    requests.post(url, data=payload)
+    try:
+        requests.post(url, data=payload)
+    except Exception as e:
+        print(f"Error sending Telegram alert: {e}")
 
-# default_args for the DAG, including retry logic and Telegram alert on failure
+# Default_args for the DAG, including retry logic and Telegram alert on failure
 default_args = {
     'owner': 'd1ego23',
     'depends_on_past': False,
@@ -51,7 +55,7 @@ default_args = {
 with DAG(
     'ecommerce_medallion_pipeline',
     default_args=default_args,
-    description='End-to-end Data Engineering Pipeline (Bronze -> Silver -> Gold -> RDBMS)',
+    description="E-Commerce Medallion Pipeline",
     schedule=timedelta(days=1), 
     start_date=datetime(2026, 1, 1),
     catchup=False,
@@ -74,31 +78,24 @@ with DAG(
         bash_command=f'spark-submit --master "local[*]" --driver-memory 2G {os.path.join(SCRIPTS_DIR, "spark", "bronze_to_silver_api.py")} {os.path.join(BRONZE_PATH, "exchange_rates", "rates_2019_10.json")} {os.path.join(SILVER_PATH, "exchange_rates")}'
     )
 
-    start_postgres_task = BashOperator(
-        task_id='start_postgres_container',
-        bash_command=f'cd {PROJECT_DIR} && docker-compose up -d'
-    )
-
     silver_to_rdbms_task = BashOperator(
         task_id='silver_to_rdbms',
-        bash_command=f'{ENV_CMD} spark-submit --master "local[*]" --driver-memory 4G --packages org.postgresql:postgresql:42.6.0 {os.path.join(SCRIPTS_DIR, "spark", "silver_to_rdbms.py")} {os.path.join(SILVER_PATH, "ecommerce_events")} {os.path.join(SILVER_PATH, "exchange_rates")}'
+        bash_command=f'spark-submit --master "local[*]" --driver-memory 4G --packages org.postgresql:postgresql:42.6.0 {os.path.join(SCRIPTS_DIR, "spark", "silver_to_rdbms.py")} {os.path.join(SILVER_PATH, "ecommerce_events")} {os.path.join(SILVER_PATH, "exchange_rates")}'
     )
-
-    DBT_DIR = os.path.join(PROJECT_DIR, "ecommerce_dbt")
 
     dbt_run_task = BashOperator(
         task_id='dbt_run_star_schema',
-        bash_command=f'{ENV_CMD} cd {DBT_DIR} && dbt run --profiles-dir .',
+        bash_command=f'cd {DBT_DIR} && dbt run --profiles-dir .',
         dag=dag
     )
 
     dbt_test_task = BashOperator(
         task_id='dbt_test_data_quality',
-        bash_command=f'{ENV_CMD} cd {DBT_DIR} && dbt test --profiles-dir .',
+        bash_command=f'cd {DBT_DIR} && dbt test --profiles-dir .',
         dag=dag
 )
     
 # Define task dependencies to create the DAG flow
 ingest_api_task >> api_bronze_to_silver_task
 events_bronze_to_silver_task
-[events_bronze_to_silver_task, api_bronze_to_silver_task] >> start_postgres_task >> silver_to_rdbms_task >> dbt_run_task >> dbt_test_task
+[events_bronze_to_silver_task, api_bronze_to_silver_task] >> silver_to_rdbms_task >> dbt_run_task >> dbt_test_task

@@ -1,14 +1,132 @@
+x-airflow-common:
+  &airflow-common
+  build: .
+  env_file:
+    - .env
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
+    AIRFLOW_VAR_TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+    AIRFLOW_VAR_TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: 30 
+    AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: 10
+    AIRFLOW__SCHEDULER__STANDALONE_DAG_PROCESSOR: "true"
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://airflow-api-server:8080/execution"
+    AIRFLOW__CORE__INTERNAL_API_URL: "http://airflow-api-server:8080"
+    AIRFLOW__API_AUTH__JWT_SECRET: "a-very-secure-jwt-secret-key-that-must-be-statically-defined-across-all-containers"
+    AIRFLOW__SECRETS__SECRET_KEY: "a-very-secure-secret-key-for-flask"
+  volumes:
+    # Mount entire project to Airflow working directory
+    - ./dags:/opt/airflow/dags
+    - ./scripts:/opt/airflow/scripts
+    - ./ecommerce_dbt:/opt/airflow/ecommerce_dbt
+    - ./data:/opt/airflow/data
+    - ./.env:/opt/airflow/.env
+  depends_on:
+    postgres-airflow:
+      condition: service_healthy
+
 services:
-  postgres-dw:
+  setup-env:
+    image: alpine:latest
+    container_name: setup-env
+    user: root
+    volumes:
+      - .:/project
+    command: >
+      sh -c "mkdir -p /project/data/bronze/exchange_rates
+      && mkdir -p /project/data/silver/exchange_rates
+      && mkdir -p /project/data/quarantine
+      && mkdir -p /project/ecommerce_dbt/logs
+      && mkdir -p /project/ecommerce_dbt/target
+      && chmod -R 777 /project/data
+      && chmod -R 777 /project/ecommerce_dbt"
+
+  postgres:
     image: postgres:15
-    container_name: postgres-dw
+    container_name: postgres
     restart: always
     ports:
-      - "${POSTGRES_PORT}:5432" # can change the PORT in .env file
+      - "${POSTGRES_PORT}:5432" 
     env_file:
       - .env
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "admin"]
+      interval: 5s
+      retries: 5  
+  postgres-airflow:
+    image: postgres:15
+    container_name: postgres-airflow
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - postgres-db-airflow:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
 
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow-init
+    command: >
+      bash -c "airflow db migrate"
+    depends_on:
+        postgres-airflow:
+          condition: service_healthy
+        setup-env:
+          condition: service_completed_successfully
+
+  airflow-api-server:
+    <<: *airflow-common
+    container_name: airflow-api-server
+    command: api-server
+    ports:
+      - "8080:8080"
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/version"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    container_name: airflow-dag-processor
+    command: dag-processor
+    restart: always
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: airflow-scheduler
+    command: scheduler
+    restart: always
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-api-server:
+        condition: service_healthy
+        
 volumes:
   pgdata:
+  postgres-db-airflow:

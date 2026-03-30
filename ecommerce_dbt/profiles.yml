@@ -2,8 +2,8 @@ ecommerce_dbt:
   outputs:
     dev:
       type: postgres
-      host: localhost
-      port: "{{ env_var('POSTGRES_PORT') | int }}"
+      host: postgres
+      port: 5432
       dbname: "{{ env_var('POSTGRES_DB') }}"
       schema: public
       user: "{{ env_var('POSTGRES_USER') }}"
