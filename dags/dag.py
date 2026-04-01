@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 import requests
@@ -8,6 +9,10 @@ from airflow.decorators import task
 from airflow.sdk import Variable
 from airflow.providers.standard.operators.bash import BashOperator
 
+from utils.spark import SPARK_PACKAGES
+
+logger = logging.getLogger("airflow.task")
+
 # Ensure scripts directory is in sys.path
 DAG_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(DAG_DIR)
@@ -17,7 +22,7 @@ DBT_DIR = os.path.join(PROJECT_DIR, "dbt")
 if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
-def send_telegram_alert(context):
+def send_telegram_alert(context: dict) -> None:
     """Sends a failure alert via Telegram bot."""
     bot_token = Variable.get('telegram_bot_token', default_var='dummy_token')
     chat_id = Variable.get('telegram_chat_id', default_var='dummy_chat_id')
@@ -40,7 +45,7 @@ def send_telegram_alert(context):
     try:
         requests.post(url, data=payload)
     except Exception as e:
-        print(f"Error sending Telegram alert: {e}")
+        logger.error(f"Error sending Telegram alert: {e}")
 
 default_args = {
     'owner': 'd1ego23',
@@ -55,7 +60,7 @@ default_args = {
 with DAG(
     'ecommerce_medallion_pipeline',
     default_args=default_args,
-    description="E-Commerce Medallion Pipeline (Refactored with TaskFlow API)",
+    description="E-Commerce Medallion Pipeline",
     schedule=timedelta(days=1), 
     start_date=datetime(2020, 1, 1),
     catchup=False,
@@ -63,35 +68,28 @@ with DAG(
 ) as dag:
 
     @task(task_id='ingest_to_bronze')
-    def ingest_to_bronze_task(ds=None):
+    def ingest_to_bronze_task(ds: str | None = None) -> None:
         """Python TaskFlow operator for uploading staging parquet to Bronze MinIO lake"""
-        import upload_to_bronze
-        sys.argv = ['upload_to_bronze.py', ds]
-        upload_to_bronze.main()
+        from upload_to_bronze import run_upload
+        run_upload(ds)
 
     # Spark submit task via BashOperator (external CLI process management)
-    spark_packages = '--packages org.apache.hadoop:hadoop-aws:3.4.1,io.delta:delta-spark_2.13:4.0.0,org.postgresql:postgresql:42.6.0'
+    spark_packages_arg = f'--packages {SPARK_PACKAGES}'
     bronze_to_silver_task = BashOperator(
         task_id='bronze_to_silver',
-        bash_command=f'spark-submit --master "local[*]" --driver-memory 1536M {spark_packages} '
+        bash_command=f'spark-submit --master "local[*]" --driver-memory 1536M {spark_packages_arg} '
                      f'{os.path.join(SCRIPTS_DIR, "bronze_to_silver.py")} ' + '{{ ds }}'
     )
 
     @task(task_id='silver_to_olap')
-    def silver_to_olap_task(ds=None):
+    def silver_to_olap_task(ds: str | None = None) -> None:
         """Python TaskFlow operator for DuckDB OLAP ingestion"""
-        import silver_to_olap
-        sys.argv = ['silver_to_olap.py', ds]
-        silver_to_olap.main()
+        from silver_to_olap import run_silver_to_olap
+        run_silver_to_olap(ds)
 
-    dbt_run_task = BashOperator(
-        task_id='dbt_run_star_schema',
-        bash_command=f'cd {DBT_DIR} && dbt run --profiles-dir .'
-    )
-
-    dbt_test_task = BashOperator(
-        task_id='dbt_test_data_quality',
-        bash_command=f'cd {DBT_DIR} && dbt test --profiles-dir .'
+    dbt_build_task = BashOperator(
+        task_id='dbt_build_quality_gate',
+        bash_command=f'cd {DBT_DIR} && dbt build --store-failures --profiles-dir .'
     )
 
     dbt_docs_task = BashOperator(
@@ -99,8 +97,8 @@ with DAG(
         bash_command=f'cd {DBT_DIR} && dbt docs generate --profiles-dir .'
     )
     
-    # TaskFlow API Dependencies
+    # TaskFlow API Dependencies with Quality Gate
     t_bronze = ingest_to_bronze_task()
     t_olap = silver_to_olap_task()
     
-    t_bronze >> bronze_to_silver_task >> t_olap >> dbt_run_task >> dbt_test_task >> dbt_docs_task
+    t_bronze >> bronze_to_silver_task >> t_olap >> dbt_build_task >> dbt_docs_task
