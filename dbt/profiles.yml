@@ -1,7 +1,8 @@
 ecommerce_dbt:
-  target: dev
+  target: prod
   outputs:
-    dev:
+    prod:
       type: duckdb
       path: "../data/gold_warehouse.duckdb"
+      schema: main
       threads: 4

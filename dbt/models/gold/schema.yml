@@ -5,7 +5,7 @@ sources:
     schema: silver         
     tables:
       - name: ecommerce_events
-        description: "Bảng chứa dữ liệu clickstream đã được làm sạch ở tầng Silver"
+        description: "Cleaned clickstream and enriched CRM events at the Silver layer."
         columns:
           - name: event_time
             tests:
@@ -27,7 +27,7 @@ sources:
     schema: crm
     tables:
       - name: user_loyalty
-        description: "Bảng chứa dữ liệu Loyalty khách hàng từ Neon CRM"
+        description: "Customer loyalty tier and acquisition profile from Neon CRM."
         columns:
           - name: user_id
             tests:
@@ -39,37 +39,37 @@ sources:
 
 models:
   - name: dim_users_loyalty
-    description: "Bảng Dimension khách hàng tích hợp thông tin hạng Loyalty"
+    description: "User dimension table integrating loyalty tiers and session activity metrics."
     columns:
       - name: user_id
-        description: "ID duy nhất của khách hàng"
+        description: "Unique identifier for the user."
         tests:
           - unique
           - not_null
 
   - name: dim_products
-    description: "Bảng Dimension sản phẩm"
+    description: "Product dimension table with cleaned category and brand hierarchies."
     columns:
       - name: product_id
-        description: "ID duy nhất của sản phẩm"
+        description: "Unique identifier for the product."
         tests:
           - unique
           - not_null
 
   - name: fact_sales
-    description: "Bảng Fact chứa các giao dịch mua hàng"
+    description: "Fact table recording completed purchase transactions."
     columns:
       - name: sale_id
-        description: "ID duy nhất của giao dịch mua"
+        description: "Unique surrogate key for the sale transaction."
         tests:
           - unique
           - not_null
 
   - name: fact_cart_abandonment
-    description: "Bảng Fact phân tích các mặt hàng bị bỏ quên trong giỏ"
+    description: "Fact table tracking cart additions without subsequent purchases."
     columns:
       - name: abandonment_id
-        description: "ID duy nhất của sự kiện bỏ quên giỏ hàng"
+        description: "Unique surrogate key for the cart abandonment event."
         tests:
           - unique
-          - not_null
+          - not_null
