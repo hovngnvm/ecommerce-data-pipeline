@@ -1,7 +1,7 @@
 import psycopg2
 import psycopg2.extensions
 from contextlib import contextmanager
-from typing import Iterator
+from collections.abc import Iterator
 from utils.config import NEON_DB_HOST, NEON_DB_USER, NEON_DB_PASSWORD, NEON_DB_NAME, NEON_DB_PORT
 
 @contextmanager

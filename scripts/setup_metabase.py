@@ -1,13 +1,8 @@
 import os
 import sys
 import time
-from typing import Optional, Dict, Any, List
+from typing import Any
 import requests
-
-# Ensure scripts directory is in sys.path for internal utility imports
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-if SCRIPT_DIR not in sys.path:
-    sys.path.insert(0, SCRIPT_DIR)
 
 from utils.config import (
     NEON_DB_HOST,
@@ -25,7 +20,7 @@ ADMIN_EMAIL = os.getenv("METABASE_ADMIN_EMAIL", "admin@ecommerce.local")
 ADMIN_PASSWORD = os.getenv("METABASE_ADMIN_PASSWORD", "AdminPassword123!")
 
 
-def get_metabase_session(base_url: str = METABASE_URL, retries: int = 6, delay: int = 5) -> Optional[str]:
+def get_metabase_session(base_url: str = METABASE_URL, retries: int = 6, delay: int = 5) -> str | None:
     """
     Retrieves a valid Metabase admin session token. Completes initial setup wizard
     if first run, or authenticates via existing admin credentials.
@@ -83,7 +78,7 @@ def get_metabase_session(base_url: str = METABASE_URL, retries: int = 6, delay: 
     return None
 
 
-def ensure_crm_database(base_url: str, headers: Dict[str, str], db_name: str = "Neon CRM Postgres") -> Optional[int]:
+def ensure_crm_database(base_url: str, headers: dict[str, str], db_name: str = "Neon CRM Postgres") -> int | None:
     """
     Idempotently verifies and registers the Neon Cloud Postgres CRM database connection in Metabase.
     """
@@ -124,7 +119,7 @@ def ensure_crm_database(base_url: str, headers: Dict[str, str], db_name: str = "
     return None
 
 
-def ensure_executive_dashboard(base_url: str, headers: Dict[str, str], title: str = "E-Commerce Executive Overview") -> Optional[int]:
+def ensure_executive_dashboard(base_url: str, headers: dict[str, str], title: str = "E-Commerce Executive Overview") -> int | None:
     """
     Idempotently creates or retrieves the main Executive BI Dashboard.
     """
@@ -156,11 +151,11 @@ def ensure_executive_dashboard(base_url: str, headers: Dict[str, str], title: st
     return None
 
 
-def create_and_attach_cards(base_url: str, headers: Dict[str, str], db_id: int, dash_id: int) -> bool:
+def create_and_attach_cards(base_url: str, headers: dict[str, str], db_id: int, dash_id: int) -> bool:
     """
     Creates analytical SQL cards and links them to the target Executive Dashboard.
     """
-    cards_config: List[Dict[str, Any]] = [
+    cards_config: list[dict[str, Any]] = [
         # Key metric cards
         {
             "name": "Total Registered CRM Users",
@@ -213,7 +208,7 @@ def create_and_attach_cards(base_url: str, headers: Dict[str, str], db_id: int, 
     existing_cards = existing_cards_resp.get("data", existing_cards_resp) if isinstance(existing_cards_resp, dict) else existing_cards_resp
     existing_card_map = {c["name"]: c["id"] for c in existing_cards if isinstance(c, dict) and "name" in c and "id" in c}
 
-    dash_cards: List[Dict[str, Any]] = []
+    dash_cards: list[dict[str, Any]] = []
     for idx, card_def in enumerate(cards_config, start=1):
         card_name = card_def["name"]
         if card_name in existing_card_map:
@@ -298,4 +293,5 @@ def main() -> bool:
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    sys.exit(0 if main() else 1)
