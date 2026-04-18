@@ -51,6 +51,6 @@ SELECT
     coalesce(c.acquisition_channel, 'Organic') as acquisition_channel
 FROM cart_events c
 LEFT JOIN purchase_events p
-  ON c.user_session = p.user_session 
+  ON c.user_session = p.user_session
   AND c.product_id = p.product_id
 WHERE p.user_session IS NULL

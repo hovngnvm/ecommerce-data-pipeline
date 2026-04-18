@@ -168,7 +168,7 @@ The pipeline enforces a **Fail-Fast Circuit Breaker** using **16 automated test 
 
 ### 2. Daily Ingestion (Airflow Scheduler)
 * **Bronze Ingestion (`upload_to_bronze.py`):** Uploads the target run date's Parquet file (`{{ ds }}`) from local staging to MinIO `ecommerce-bronze` bucket.
-* **Bronze → Silver Delta (`bronze_to_silver.py`):** 
+* **Bronze → Silver Delta (`bronze_to_silver.py`):**
   * Reads clickstream from S3 Bronze.
   * Filters and routes malformed records to a dedicated quarantine path.
   * Connects to Neon Postgres CRM via JDBC to pull user loyalty tiers and acquisition channels.

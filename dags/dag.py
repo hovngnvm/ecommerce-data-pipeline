@@ -26,7 +26,7 @@ def send_telegram_alert(context: dict) -> None:
     """Sends a failure alert via Telegram bot."""
     bot_token = Variable.get('telegram_bot_token', default_var='dummy_token')
     chat_id = Variable.get('telegram_chat_id', default_var='dummy_chat_id')
-    
+
     if bot_token == 'dummy_token' or chat_id == 'dummy_chat_id':
         return
 
@@ -34,7 +34,7 @@ def send_telegram_alert(context: dict) -> None:
     execution_date = context.get('execution_date')
     exception = context.get('exception')
     error_reason = str(exception)[:500]
-    
+
     message = f"!!! AIRFLOW ALERT !!!\nFailed Task: {task_id}\nExecution Date: {execution_date}\nError: {error_reason}"
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {
@@ -43,8 +43,9 @@ def send_telegram_alert(context: dict) -> None:
         'parse_mode': 'HTML'
     }
     try:
-        requests.post(url, data=payload)
-    except Exception as e:
+        res = requests.post(url, data=payload, timeout=10)
+        res.raise_for_status()
+    except requests.exceptions.RequestException as e:
         logger.error(f"Error sending Telegram alert: {e}")
 
 default_args = {
@@ -61,7 +62,7 @@ with DAG(
     'ecommerce_medallion_pipeline',
     default_args=default_args,
     description="E-Commerce Medallion Pipeline",
-    schedule=timedelta(days=1), 
+    schedule=timedelta(days=1),
     start_date=datetime(2020, 1, 1),
     catchup=False,
     tags=['ecommerce', 'spark', 'medallion', 'neon', 'minio', 'taskflow'],
@@ -89,16 +90,16 @@ with DAG(
 
     dbt_build_task = BashOperator(
         task_id='dbt_build_quality_gate',
-        bash_command=f'cd {DBT_DIR} && dbt build --store-failures --profiles-dir .'
+        bash_command=f'cd {DBT_DIR} && dbt build --fail-fast --store-failures --profiles-dir .'
     )
 
     dbt_docs_task = BashOperator(
         task_id='dbt_docs_generate',
         bash_command=f'cd {DBT_DIR} && dbt docs generate --profiles-dir .'
     )
-    
+
     # TaskFlow API Dependencies with Quality Gate
     t_bronze = ingest_to_bronze_task()
     t_olap = silver_to_olap_task()
-    
+
     t_bronze >> bronze_to_silver_task >> t_olap >> dbt_build_task >> dbt_docs_task

@@ -1,8 +1,8 @@
 version: 2
 
 sources:
-  - name: db_silver        
-    schema: silver         
+  - name: db_silver
+    schema: silver
     tables:
       - name: ecommerce_events
         description: "Cleaned clickstream and enriched CRM events at the Silver layer."
@@ -72,4 +72,4 @@ models:
         description: "Unique surrogate key for the cart abandonment event."
         tests:
           - unique
-          - not_null
+          - not_null
