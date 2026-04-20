@@ -84,13 +84,13 @@ def run_silver_to_olap(run_date: str | None = None, target_duckdb_path: str | No
             parquet_source = "s3://ecommerce-silver/**/*.parquet"
             logger.info("Using S3 Silver Delta/Parquet lake as source: s3://ecommerce-silver/")
         except Exception as s3_err:
-            logger.warning(f"Could not configure DuckDB S3 extension ({s3_err}), falling back to local staging.")
-            parquet_source = os.path.join(STAGING_DIR, "**", "*.parquet").replace('\\', '/')
+            logger.error(f"Could not configure DuckDB S3 extension: {s3_err}")
+            raise RuntimeError(f"Cannot access Silver Lake via MinIO S3: {s3_err}") from s3_err
 
         logger.info(f"Reading Silver Event logs from {parquet_source} and joining with CRM data...")
         query = f"""
             INSERT INTO silver.ecommerce_events
-            SELECT 
+            SELECT
                 TRY_CAST(p.user_id AS INTEGER) as user_id,
                 p.event_type,
                 TRY_CAST(p.product_id AS INTEGER) as product_id,
@@ -105,11 +105,16 @@ def run_silver_to_olap(run_date: str | None = None, target_duckdb_path: str | No
             FROM read_parquet('{parquet_source}') p
             LEFT JOIN crm_users_df l ON TRY_CAST(p.user_id AS INTEGER) = l.user_id
             WHERE p.event_type != 'view'
-              AND p.event_time IS NOT NULL 
+              AND p.event_time IS NOT NULL
               AND p.user_id IS NOT NULL
               {date_filter_sql};
         """
-        con.execute(query)
+        try:
+            con.execute(query)
+        except Exception as query_err:
+            logger.error(f"Failed to read from Silver Lake ({parquet_source}): {query_err}")
+            raise RuntimeError(f"Cannot access Silver Lake ({parquet_source}): {query_err}") from query_err
+
         con.unregister("crm_users_df")
 
         total_records = con.execute("SELECT COUNT(*) FROM silver.ecommerce_events;").fetchone()[0]

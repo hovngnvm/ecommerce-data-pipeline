@@ -57,19 +57,19 @@ def run_bronze_to_silver(run_date: str, spark: SparkSession | None = None) -> No
             .withColumn("event_date", to_date(col("event_time_parsed")))
 
         na_df = parsed_df.filter(
-            col("event_time_parsed").isNull() | 
-            col("event_type").isNull() | 
-            col("user_id").isNull() | 
-            col("product_id").isNull() | 
+            col("event_time_parsed").isNull() |
+            col("event_type").isNull() |
+            col("user_id").isNull() |
+            col("product_id").isNull() |
             col("price").isNull()
         ).drop("event_time_parsed", "event_date")
 
         clean_df = parsed_df \
             .filter(
-                col("event_time_parsed").isNotNull() & 
-                col("event_type").isNotNull() & 
-                col("user_id").isNotNull() & 
-                col("product_id").isNotNull() & 
+                col("event_time_parsed").isNotNull() &
+                col("event_type").isNotNull() &
+                col("user_id").isNotNull() &
+                col("product_id").isNotNull() &
                 col("price").isNotNull()
             ) \
             .withColumn("event_time", col("event_time_parsed")) \
@@ -81,7 +81,7 @@ def run_bronze_to_silver(run_date: str, spark: SparkSession | None = None) -> No
 
         logger.info("Fetching CRM user profiles from Neon Postgres via JDBC...")
         db_url, db_properties = get_jdbc_config()
-        
+
         crm_df = spark.read.jdbc(
             url=db_url,
             table="crm.user_loyalty",
@@ -105,7 +105,7 @@ def run_bronze_to_silver(run_date: str, spark: SparkSession | None = None) -> No
         enriched_df_clean = enriched_df.dropDuplicates(["user_session", "event_time", "product_id", "event_type"])
 
         logger.info(f"Writing Silver data to Delta Table at {SILVER_DELTA_PATH}...")
-        
+
         if DeltaTable.isDeltaTable(spark, SILVER_DELTA_PATH):
             logger.info("Delta table exists. Performing MERGE (Upsert)...")
             delta_table = DeltaTable.forPath(spark, SILVER_DELTA_PATH)
@@ -134,7 +134,7 @@ def main() -> None:
     if len(sys.argv) < 2:
         logger.error("Usage: python bronze_to_silver.py YYYY-MM-DD")
         sys.exit(1)
-        
+
     run_date = sys.argv[1]
     try:
         run_bronze_to_silver(run_date)

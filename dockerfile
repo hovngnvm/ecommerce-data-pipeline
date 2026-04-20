@@ -1,4 +1,4 @@
-FROM apache/airflow:3.1.2
+FROM apache/airflow:2.10.4-python3.12
 
 # Install Java
 USER root

@@ -11,7 +11,7 @@ x-airflow-common:
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
     AIRFLOW_VAR_TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
     AIRFLOW_VAR_TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
-    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: 30 
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: 30
     AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: 10
     AIRFLOW__SCHEDULER__STANDALONE_DAG_PROCESSOR: "true"
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://airflow-api-server:8080/execution"
@@ -133,7 +133,7 @@ services:
         condition: service_completed_successfully
       airflow-api-server:
         condition: service_healthy
-        
+
   dbt-docs:
     image: nginx:1.25-alpine
     container_name: dbt-docs
@@ -145,7 +145,7 @@ services:
     restart: always
 
   metabase:
-    image: metabase/metabase:latest
+    image: metabase/metabase:v0.50.27
     container_name: metabase
     mem_limit: 2g
     ports:

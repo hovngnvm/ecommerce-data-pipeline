@@ -58,7 +58,7 @@ def main() -> None:
     if len(sys.argv) < 2:
         logger.error("Usage: python upload_to_bronze.py YYYY-MM-DD")
         sys.exit(1)
-    
+
     run_date = sys.argv[1]
     try:
         run_upload(run_date)
