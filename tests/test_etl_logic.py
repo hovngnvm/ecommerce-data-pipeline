@@ -19,7 +19,7 @@ class TestETLLogic(unittest.TestCase):
         self.con.register("raw_sample", sample_records)
 
         query = """
-            SELECT 
+            SELECT
                 user_id,
                 COALESCE(NULLIF(split_part(category_code, '.', 1), ''), 'unknown') as category,
                 COALESCE(NULLIF(split_part(category_code, '.', 2), ''), 'unknown') as sub_category,
@@ -52,7 +52,7 @@ class TestETLLogic(unittest.TestCase):
             )
             SELECT c.user_session, c.product_id
             FROM cart_events c
-            LEFT JOIN purchase_events p 
+            LEFT JOIN purchase_events p
               ON c.user_session = p.user_session AND c.product_id = p.product_id
             WHERE p.user_session IS NULL;
         """

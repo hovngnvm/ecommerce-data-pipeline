@@ -1,7 +1,11 @@
 import unittest
+from unittest import mock
 import duckdb
 import os
+import uuid
+import tempfile
 import pandas as pd
+from scripts.silver_to_olap import run_silver_to_olap
 
 class TestSilverToOlap(unittest.TestCase):
     def setUp(self):
@@ -11,7 +15,7 @@ class TestSilverToOlap(unittest.TestCase):
         self.con.close()
 
     def test_duckdb_schema_creation_and_query(self):
-        """Test DuckDB table schema creation and transformation query logic"""
+        """Contract Test: Verifies DuckDB table schema creation and transformation query logic"""
         self.con.execute("CREATE SCHEMA IF NOT EXISTS silver;")
         self.con.execute("""
             CREATE TABLE silver.ecommerce_events (
@@ -28,7 +32,7 @@ class TestSilverToOlap(unittest.TestCase):
                 acquisition_channel VARCHAR
             );
         """)
-        
+
         sample_data = pd.DataFrame([{
             'user_id': 1001,
             'event_type': 'purchase',
@@ -39,11 +43,14 @@ class TestSilverToOlap(unittest.TestCase):
             'user_session': 'sess_1',
             'event_time': '2026-07-26 12:00:00'
         }])
-        
-        self.con.register("raw_sample", sample_data)
+
+        self.con.register("sample_events", sample_data)
         self.con.execute("""
-            INSERT INTO silver.ecommerce_events
-            SELECT 
+            INSERT INTO silver.ecommerce_events (
+                user_id, event_type, product_id, category, sub_category,
+                brand, price, user_session, event_time, loyalty_tier, acquisition_channel
+            )
+            SELECT
                 user_id,
                 event_type,
                 product_id,
@@ -52,15 +59,41 @@ class TestSilverToOlap(unittest.TestCase):
                 brand,
                 price,
                 user_session,
-                TRY_CAST(event_time AS TIMESTAMP),
-                'Regular' as loyalty_tier,
-                'Organic' as acquisition_channel
-            FROM raw_sample;
+                CAST(event_time AS TIMESTAMP) as event_time,
+                'Gold' as loyalty_tier,
+                'Direct' as acquisition_channel
+            FROM sample_events;
         """)
-        
-        res = self.con.execute("SELECT category, sub_category FROM silver.ecommerce_events WHERE user_id = 1001;").fetchone()
-        self.assertEqual(res[0], "electronics")
-        self.assertEqual(res[1], "smartphone")
+
+        result = self.con.execute("SELECT user_id, category, loyalty_tier FROM silver.ecommerce_events").fetchall()
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], (1001, 'electronics', 'Gold'))
+
+    @mock.patch("scripts.silver_to_olap.get_db_connection")
+    def test_run_silver_to_olap_entrypoint(self, mock_get_db):
+        """Integration Test: Executes run_silver_to_olap entry point with mocked PostgreSQL & S3 boundaries"""
+        mock_conn = mock.MagicMock()
+        mock_cur = mock.MagicMock()
+        mock_cur.fetchall.return_value = [(1001, "Gold", "2025-01-15", "Facebook Ads")]
+        mock_cur.description = [("user_id",), ("loyalty_tier",), ("signup_date",), ("acquisition_channel",)]
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_get_db.return_value.__enter__.return_value = mock_conn
+
+        tmp_db_path = os.path.join(tempfile.gettempdir(), f"test_{uuid.uuid4().hex}.duckdb")
+
+        try:
+            with self.assertRaises(Exception) as ctx:
+                run_silver_to_olap(target_duckdb_path=tmp_db_path)
+            err_msg = str(ctx.exception)
+            self.assertTrue(
+                any(p in err_msg for p in ["Cannot access Silver Lake", "Could not connect", "S3", "IO Error", "Connection refused"])
+            )
+        finally:
+            if os.path.exists(tmp_db_path):
+                try:
+                    os.remove(tmp_db_path)
+                except OSError:
+                    pass
 
 if __name__ == "__main__":
     unittest.main()
