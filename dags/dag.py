@@ -1,6 +1,6 @@
 import logging
-import os
 import sys
+from pathlib import Path
 import requests
 from datetime import datetime, timedelta
 
@@ -14,13 +14,13 @@ from utils.spark import SPARK_PACKAGES
 logger = logging.getLogger("airflow.task")
 
 # Ensure scripts directory is in sys.path
-DAG_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_DIR = os.path.dirname(DAG_DIR)
-SCRIPTS_DIR = os.path.join(PROJECT_DIR, "scripts")
-DBT_DIR = os.path.join(PROJECT_DIR, "dbt")
+DAG_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = DAG_DIR.parent
+SCRIPTS_DIR = PROJECT_DIR / "scripts"
+DBT_DIR = PROJECT_DIR / "dbt"
 
-if SCRIPTS_DIR not in sys.path:
-    sys.path.insert(0, SCRIPTS_DIR)
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
 
 def send_telegram_alert(context: dict) -> None:
     """Sends a failure alert via Telegram bot."""
@@ -79,7 +79,7 @@ with DAG(
     bronze_to_silver_task = BashOperator(
         task_id='bronze_to_silver',
         bash_command=f'spark-submit --master "local[*]" --driver-memory 1536M {spark_packages_arg} '
-                     f'{os.path.join(SCRIPTS_DIR, "bronze_to_silver.py")} ' + '{{ ds }}'
+                     f'{SCRIPTS_DIR / "bronze_to_silver.py"} ' + '{{ ds }}'
     )
 
     @task(task_id='silver_to_olap')

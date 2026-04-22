@@ -1,20 +1,20 @@
-import os
 import sys
+from pathlib import Path
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DoubleType
 from pyspark.sql.functions import col, to_timestamp, to_date, split
 from delta.tables import DeltaTable
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-if SCRIPT_DIR not in sys.path:
-    sys.path.insert(0, SCRIPT_DIR)
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 from utils.config import BRONZE_BUCKET, SILVER_DELTA_PATH, QUARANTINE_PATH
 from utils.logger import get_logger
 from utils.spark import get_spark_session
 from utils.db import get_jdbc_config
 
-logger = get_logger("bronze_to_silver")
+logger = get_logger(__name__)
 
 def run_bronze_to_silver(run_date: str, spark: SparkSession | None = None) -> None:
     """

@@ -1,8 +1,13 @@
 import os
 import sys
 import time
-from typing import Any
+from pathlib import Path
 import requests
+
+# Ensure scripts directory is in sys.path
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 from utils.config import (
     NEON_DB_HOST,
@@ -13,7 +18,7 @@ from utils.config import (
 )
 from utils.logger import get_logger
 
-logger = get_logger("setup_metabase")
+logger = get_logger(__name__)
 
 METABASE_URL = os.getenv("METABASE_URL", "http://localhost:3000")
 ADMIN_EMAIL = os.getenv("METABASE_ADMIN_EMAIL", "admin@ecommerce.local")

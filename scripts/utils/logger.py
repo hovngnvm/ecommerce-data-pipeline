@@ -5,7 +5,7 @@ from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from utils.config import LOGS_DIR
 
-def get_logger(name: str, level: int = logging.INFO) -> logging.Logger:
+def get_logger(name: str = __name__, level: int = logging.INFO) -> logging.Logger:
     """
     Returns a standard Logger configured to write to both stdout
     and a rotating log file in the logs directory.

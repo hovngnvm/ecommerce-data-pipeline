@@ -1,11 +1,11 @@
-import os
 import sys
+from pathlib import Path
 import duckdb
 import pandas as pd
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-if SCRIPT_DIR not in sys.path:
-    sys.path.insert(0, SCRIPT_DIR)
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 from utils.config import (
     DUCKDB_PATH,
@@ -17,7 +17,7 @@ from utils.config import (
 from utils.logger import get_logger
 from utils.db import get_db_connection
 
-logger = get_logger("silver_to_olap")
+logger = get_logger(__name__)
 
 def run_silver_to_olap(run_date: str | None = None, target_duckdb_path: str | None = None) -> int:
     """

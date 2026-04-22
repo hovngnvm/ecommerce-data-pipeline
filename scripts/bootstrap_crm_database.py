@@ -4,23 +4,22 @@ Scans staging partition directories for unique user IDs, generates synthetic att
 and performs atomic staging swap into Neon PostgreSQL.
 """
 
-import glob
-import os
+import sys
 import random
 from datetime import datetime, timedelta
+from pathlib import Path
 import pandas as pd
-from utils.config import (
-    RAW_CLICKSTREAM_DIR,
-    NEON_DB_HOST,
-    NEON_DB_USER,
-    NEON_DB_PASSWORD,
-    NEON_DB_NAME,
-    NEON_DB_PORT
-)
+
+# Ensure scripts directory is in sys.path
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from utils.config import STAGING_DIR
 from utils.db import get_db_connection
 from utils.logger import get_logger
 
-logger = get_logger("bootstrap_crm")
+logger = get_logger(__name__)
 
 LOYALTY_TIERS = ["Bronze", "Silver", "Gold", "Platinum"]
 LOYALTY_WEIGHTS = [0.50, 0.30, 0.15, 0.05]
@@ -36,10 +35,10 @@ DATE_RANGE_DAYS = (END_DATE - START_DATE).days
 def extract_unique_users_from_parquet() -> set[int]:
     """Scans all staging parquet partitions and extracts distinct user IDs."""
     logger.info("Scanning staging clickstream directories for unique user_ids...")
-    all_files = glob.glob(os.path.join(RAW_CLICKSTREAM_DIR, "*", "*.parquet"))
+    all_files = [str(p) for p in Path(STAGING_DIR).rglob("*.parquet")]
 
     if not all_files:
-        logger.warning(f"No parquet files found in {RAW_CLICKSTREAM_DIR}. Falling back to default ID range.")
+        logger.warning(f"No parquet files found in {STAGING_DIR}. Falling back to default ID range.")
         return set(range(1000, 2000))
 
     user_ids: set[int] = set()

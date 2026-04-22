@@ -1,28 +1,28 @@
-import os
 import sys
 import glob
 import shutil
 import re
+from pathlib import Path
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DoubleType
 from pyspark.sql.functions import col, substring
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-if SCRIPT_DIR not in sys.path:
-    sys.path.insert(0, SCRIPT_DIR)
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 from utils.config import LANDING_DIR, STAGING_DIR
 from utils.logger import get_logger
 from utils.spark import get_spark_session
 
-logger = get_logger("raw_to_bronze_prep")
+logger = get_logger(__name__)
 
 def run_raw_prep(input_pattern: str | None = None, output_dir: str | None = None, spark: SparkSession | None = None) -> None:
     """
     Reads raw compressed CSV clickstream files, partitions them by year/month/day,
     and writes optimized partitioned Parquet files to the staging directory.
     """
-    pattern = input_pattern or os.path.join(LANDING_DIR, "*.csv.gz")
+    pattern = input_pattern or str(Path(LANDING_DIR) / "*.csv.gz")
     out_dir = output_dir or STAGING_DIR
 
     logger.info(f"Search pattern for raw files: {pattern}")
@@ -35,12 +35,12 @@ def run_raw_prep(input_pattern: str | None = None, output_dir: str | None = None
 
     logger.info(f"Found {len(input_files)} raw files to process:")
     for f in input_files:
-        logger.info(f"    - {os.path.basename(f)}")
+        logger.info(f"    - {Path(f).name}")
 
-    if os.path.exists(out_dir):
+    if Path(out_dir).exists():
         logger.info(f"Clearing existing staging directory at {out_dir}...")
         shutil.rmtree(out_dir)
-    os.makedirs(out_dir, exist_ok=True)
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
 
     should_stop_spark = False
     if spark is None:
@@ -62,7 +62,7 @@ def run_raw_prep(input_pattern: str | None = None, output_dir: str | None = None
 
     try:
         for idx, file_path in enumerate(input_files):
-            file_name = os.path.basename(file_path)
+            file_name = Path(file_path).name
             logger.info(f"Processing file {idx+1}/{len(input_files)}: {file_name}...")
 
             match = re.search(r"(\d{4})", file_name)
