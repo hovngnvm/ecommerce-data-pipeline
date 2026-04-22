@@ -1,9 +1,9 @@
 import unittest
 from unittest import mock
 import duckdb
-import os
 import uuid
 import tempfile
+from pathlib import Path
 import pandas as pd
 from scripts.silver_to_olap import run_silver_to_olap
 
@@ -79,7 +79,7 @@ class TestSilverToOlap(unittest.TestCase):
         mock_conn.cursor.return_value.__enter__.return_value = mock_cur
         mock_get_db.return_value.__enter__.return_value = mock_conn
 
-        tmp_db_path = os.path.join(tempfile.gettempdir(), f"test_{uuid.uuid4().hex}.duckdb")
+        tmp_db_path = str(Path(tempfile.gettempdir()) / f"test_{uuid.uuid4().hex}.duckdb")
 
         try:
             with self.assertRaises(Exception) as ctx:
@@ -89,9 +89,10 @@ class TestSilverToOlap(unittest.TestCase):
                 any(p in err_msg for p in ["Cannot access Silver Lake", "Could not connect", "S3", "IO Error", "Connection refused"])
             )
         finally:
-            if os.path.exists(tmp_db_path):
+            db_file = Path(tmp_db_path)
+            if db_file.exists():
                 try:
-                    os.remove(tmp_db_path)
+                    db_file.unlink()
                 except OSError:
                     pass
 
