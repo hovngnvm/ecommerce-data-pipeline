@@ -2,7 +2,7 @@ import psycopg2
 import psycopg2.extensions
 from contextlib import contextmanager
 from collections.abc import Iterator
-from utils.config import NEON_DB_HOST, NEON_DB_USER, NEON_DB_PASSWORD, NEON_DB_NAME, NEON_DB_PORT
+from scripts.config.settings import settings
 
 @contextmanager
 def get_db_connection() -> Iterator[psycopg2.extensions.connection]:
@@ -11,11 +11,11 @@ def get_db_connection() -> Iterator[psycopg2.extensions.connection]:
     and ensures it is safely closed on block exit or exception.
     """
     conn = psycopg2.connect(
-        host=NEON_DB_HOST,
-        user=NEON_DB_USER,
-        password=NEON_DB_PASSWORD,
-        database=NEON_DB_NAME,
-        port=NEON_DB_PORT,
+        host=settings.neon_db_host,
+        user=settings.neon_db_user,
+        password=settings.neon_db_password,
+        database=settings.neon_db_name,
+        port=settings.neon_db_port,
         sslmode="require"
     )
     try:
@@ -27,10 +27,10 @@ def get_jdbc_config() -> tuple[str, dict[str, str]]:
     """
     Returns the JDBC URL and properties dictionary for Spark DB connection.
     """
-    db_url = f"jdbc:postgresql://{NEON_DB_HOST}:{NEON_DB_PORT}/{NEON_DB_NAME}"
+    db_url = f"jdbc:postgresql://{settings.neon_db_host}:{settings.neon_db_port}/{settings.neon_db_name}"
     db_properties = {
-        "user": NEON_DB_USER,
-        "password": NEON_DB_PASSWORD,
+        "user": settings.neon_db_user,
+        "password": settings.neon_db_password,
         "driver": "org.postgresql.Driver",
         "ssl": "true",
         "sslmode": "require"

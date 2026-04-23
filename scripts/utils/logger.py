@@ -1,9 +1,8 @@
-import os
 import sys
 import logging
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
-from utils.config import LOGS_DIR
+from scripts.config.settings import settings
 
 def get_logger(name: str = __name__, level: int = logging.INFO) -> logging.Logger:
     """
@@ -23,7 +22,7 @@ def get_logger(name: str = __name__, level: int = logging.INFO) -> logging.Logge
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
 
-        log_dir = Path(LOGS_DIR)
+        log_dir = Path(settings.logs_dir)
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file_path = log_dir / "pipeline.log"
         file_handler = RotatingFileHandler(str(log_file_path), maxBytes=10*1024*1024, backupCount=5, encoding="utf-8")
