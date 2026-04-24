@@ -3,19 +3,13 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils.config import (
-    DUCKDB_PATH,
-    MINIO_ENDPOINT,
-    MINIO_ACCESS_KEY,
-    MINIO_SECRET_KEY,
-    STAGING_DIR
-)
-from utils.logger import get_logger
-from utils.db import get_db_connection
+from scripts.config.settings import settings
+from scripts.utils.logger import get_logger
+from scripts.utils.db import get_db_connection
 
 logger = get_logger(__name__)
 
@@ -24,7 +18,7 @@ def run_silver_to_olap(run_date: str | None = None, target_duckdb_path: str | No
     Ingests cleaned Silver event data and CRM loyalty profiles into DuckDB OLAP Data Warehouse.
     Supports both full-sync and daily partition incremental loading.
     """
-    db_path = target_duckdb_path or DUCKDB_PATH
+    db_path = target_duckdb_path or settings.duckdb_path
     logger.info(f"Connecting to DuckDB Data Warehouse at: {db_path}")
     con = duckdb.connect(db_path)
 
@@ -40,80 +34,84 @@ def run_silver_to_olap(run_date: str | None = None, target_duckdb_path: str | No
                 logger.info(f"Fetched {len(crm_df):,} CRM user records from Neon.")
 
         con.register("crm_users_df", crm_df)
-        con.execute("CREATE SCHEMA IF NOT EXISTS crm;")
-        con.execute("DROP TABLE IF EXISTS crm.user_loyalty;")
-        con.execute("CREATE TABLE crm.user_loyalty (user_id INTEGER PRIMARY KEY, loyalty_tier VARCHAR, signup_date DATE, acquisition_channel VARCHAR);")
-        con.execute("INSERT INTO crm.user_loyalty SELECT * FROM crm_users_df;")
-
-        logger.info("Ensuring schema 'silver' and table 'silver.ecommerce_events' exist in DuckDB...")
-        con.execute("CREATE SCHEMA IF NOT EXISTS silver;")
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS silver.ecommerce_events (
-                user_id INTEGER,
-                event_type VARCHAR,
-                product_id INTEGER,
-                category VARCHAR,
-                sub_category VARCHAR,
-                brand VARCHAR,
-                price DOUBLE,
-                user_session VARCHAR,
-                event_time TIMESTAMP,
-                loyalty_tier VARCHAR,
-                acquisition_channel VARCHAR
-            );
-        """)
-
-        if run_date:
-            logger.info(f"Deleting pre-existing records for date {run_date} in DuckDB...")
-            con.execute("DELETE FROM silver.ecommerce_events WHERE CAST(event_time AS DATE) = CAST(? AS DATE);", [run_date])
-            date_filter_sql = f"AND CAST(p.event_time AS DATE) = CAST('{run_date}' AS DATE)"
-        else:
-            logger.info("Truncating silver.ecommerce_events for full sync...")
-            con.execute("TRUNCATE TABLE silver.ecommerce_events;")
-            date_filter_sql = ""
 
         logger.info("Configuring DuckDB S3 credentials for Silver MinIO Lake access...")
         try:
             con.execute("INSTALL httpfs; LOAD httpfs;")
-            endpoint_clean = MINIO_ENDPOINT.replace('http://', '').replace('https://', '')
+            con.execute("INSTALL delta; LOAD delta;")
+            endpoint_clean = settings.minio_endpoint.replace('http://', '').replace('https://', '')
             con.execute(f"SET s3_endpoint='{endpoint_clean}';")
-            con.execute(f"SET s3_access_key_id='{MINIO_ACCESS_KEY}';")
-            con.execute(f"SET s3_secret_access_key='{MINIO_SECRET_KEY}';")
+            con.execute(f"SET s3_access_key_id='{settings.minio_access_key}';")
+            con.execute(f"SET s3_secret_access_key='{settings.minio_secret_key}';")
             con.execute("SET s3_use_ssl=false;")
             con.execute("SET s3_url_style='path';")
-            parquet_source = "s3://ecommerce-silver/**/*.parquet"
-            logger.info("Using S3 Silver Delta/Parquet lake as source: s3://ecommerce-silver/")
+            delta_source = settings.silver_delta_path.replace("s3a://", "s3://")
+            logger.info(f"Using S3 Silver Delta Lake as source: {delta_source}")
         except Exception as s3_err:
-            logger.error(f"Could not configure DuckDB S3 extension: {s3_err}")
+            logger.error(f"Could not configure DuckDB S3/Delta extension: {s3_err}")
             raise RuntimeError(f"Cannot access Silver Lake via MinIO S3: {s3_err}") from s3_err
 
-        logger.info(f"Reading Silver Event logs from {parquet_source} and joining with CRM data...")
-        query = f"""
-            INSERT INTO silver.ecommerce_events
-            SELECT
-                TRY_CAST(p.user_id AS INTEGER) as user_id,
-                p.event_type,
-                TRY_CAST(p.product_id AS INTEGER) as product_id,
-                COALESCE(split_part(p.category_code, '.', 1), 'unknown') as category,
-                COALESCE(split_part(p.category_code, '.', 2), 'unknown') as sub_category,
-                COALESCE(p.brand, 'unknown') as brand,
-                TRY_CAST(p.price AS DOUBLE) as price,
-                p.user_session,
-                TRY_CAST(p.event_time AS TIMESTAMP) as event_time,
-                COALESCE(l.loyalty_tier, 'Regular') as loyalty_tier,
-                COALESCE(l.acquisition_channel, 'Organic') as acquisition_channel
-            FROM read_parquet('{parquet_source}') p
-            LEFT JOIN crm_users_df l ON TRY_CAST(p.user_id AS INTEGER) = l.user_id
-            WHERE p.event_type != 'view'
-              AND p.event_time IS NOT NULL
-              AND p.user_id IS NOT NULL
-              {date_filter_sql};
-        """
+        con.execute("BEGIN TRANSACTION;")
         try:
+            con.execute("CREATE SCHEMA IF NOT EXISTS crm;")
+            con.execute("CREATE TABLE IF NOT EXISTS crm.user_loyalty (user_id INTEGER PRIMARY KEY, loyalty_tier VARCHAR, signup_date DATE, acquisition_channel VARCHAR);")
+            con.execute("DELETE FROM crm.user_loyalty;")
+            con.execute("INSERT INTO crm.user_loyalty SELECT user_id, loyalty_tier, signup_date, acquisition_channel FROM crm_users_df;")
+
+            con.execute("CREATE SCHEMA IF NOT EXISTS silver;")
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS silver.ecommerce_events (
+                    user_id INTEGER,
+                    event_type VARCHAR,
+                    product_id INTEGER,
+                    category VARCHAR,
+                    sub_category VARCHAR,
+                    brand VARCHAR,
+                    price DOUBLE,
+                    user_session VARCHAR,
+                    event_time TIMESTAMP,
+                    loyalty_tier VARCHAR,
+                    acquisition_channel VARCHAR
+                );
+            """)
+
+            if run_date:
+                logger.info(f"Deleting pre-existing records for date {run_date} in DuckDB...")
+                con.execute("DELETE FROM silver.ecommerce_events WHERE CAST(event_time AS DATE) = CAST(? AS DATE);", [run_date])
+                date_filter_sql = f"AND CAST(p.event_time AS DATE) = CAST('{run_date}' AS DATE)"
+            else:
+                logger.info("Clearing silver.ecommerce_events for full sync...")
+                con.execute("DELETE FROM silver.ecommerce_events;")
+                date_filter_sql = ""
+
+            logger.info(f"Reading Silver Event logs from {delta_source} and joining with CRM data...")
+            query = f"""
+                INSERT INTO silver.ecommerce_events
+                SELECT
+                    TRY_CAST(p.user_id AS INTEGER) as user_id,
+                    p.event_type,
+                    TRY_CAST(p.product_id AS INTEGER) as product_id,
+                    COALESCE(p.category, 'unknown') as category,
+                    COALESCE(p.sub_category, 'unknown') as sub_category,
+                    COALESCE(p.brand, 'unknown') as brand,
+                    TRY_CAST(p.price AS DOUBLE) as price,
+                    p.user_session,
+                    TRY_CAST(p.event_time AS TIMESTAMP) as event_time,
+                    COALESCE(l.loyalty_tier, 'Member') as loyalty_tier,
+                    COALESCE(l.acquisition_channel, 'Organic') as acquisition_channel
+                FROM delta_scan('{delta_source}') p
+                LEFT JOIN crm_users_df l ON TRY_CAST(p.user_id AS INTEGER) = l.user_id
+                WHERE p.event_type != 'view'
+                  AND p.event_time IS NOT NULL
+                  AND p.user_id IS NOT NULL
+                  {date_filter_sql};
+            """
             con.execute(query)
-        except Exception as query_err:
-            logger.error(f"Failed to read from Silver Lake ({parquet_source}): {query_err}")
-            raise RuntimeError(f"Cannot access Silver Lake ({parquet_source}): {query_err}") from query_err
+            con.execute("COMMIT;")
+        except Exception as tx_err:
+            con.execute("ROLLBACK;")
+            logger.error(f"Transaction failed and was rolled back: {tx_err}")
+            raise RuntimeError(f"Silver to DuckDB sync failed: {tx_err}") from tx_err
 
         con.unregister("crm_users_df")
 

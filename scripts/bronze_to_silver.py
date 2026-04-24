@@ -5,14 +5,14 @@ from pyspark.sql.types import StructType, StructField, StringType, IntegerType, 
 from pyspark.sql.functions import col, to_timestamp, to_date, split
 from delta.tables import DeltaTable
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils.config import BRONZE_BUCKET, SILVER_DELTA_PATH, QUARANTINE_PATH
-from utils.logger import get_logger
-from utils.spark import get_spark_session
-from utils.db import get_jdbc_config
+from scripts.config.settings import settings
+from scripts.utils.logger import get_logger
+from scripts.utils.spark import get_spark_session
+from scripts.utils.db import get_jdbc_config
 
 logger = get_logger(__name__)
 
@@ -28,7 +28,7 @@ def run_bronze_to_silver(run_date: str, spark: SparkSession | None = None) -> No
     month = run_date[5:7]
     day = run_date[8:10]
 
-    input_path = f"s3a://{BRONZE_BUCKET}/year={year}/month={month}/day={day}/*.parquet"
+    input_path = f"s3a://{settings.minio_bronze_bucket}/year={year}/month={month}/day={day}/*.parquet"
     should_stop_spark = False
 
     if spark is None:
@@ -92,23 +92,23 @@ def run_bronze_to_silver(run_date: str, spark: SparkSession | None = None) -> No
         enriched_df = clean_df.join(crm_df, on="user_id", how="left")
 
         enriched_df = enriched_df.fillna({
-            "loyalty_tier": "Regular",
+            "loyalty_tier": "Member",
             "acquisition_channel": "Organic"
         })
 
         na_count = na_df.count()
         if na_count > 0:
-            logger.warning(f"Writing {na_count} quarantined rows to {QUARANTINE_PATH}...")
-            na_df.write.mode("append").parquet(QUARANTINE_PATH)
+            logger.warning(f"Writing {na_count} quarantined rows to {settings.quarantine_path}...")
+            na_df.write.mode("append").parquet(settings.quarantine_path)
 
         # Deduplicate to prevent MultipleSourceRowMatchingTargetRow exception on MERGE
         enriched_df_clean = enriched_df.dropDuplicates(["user_session", "event_time", "product_id", "event_type"])
 
-        logger.info(f"Writing Silver data to Delta Table at {SILVER_DELTA_PATH}...")
+        logger.info(f"Writing Silver data to Delta Table at {settings.silver_delta_path}...")
 
-        if DeltaTable.isDeltaTable(spark, SILVER_DELTA_PATH):
+        if DeltaTable.isDeltaTable(spark, settings.silver_delta_path):
             logger.info("Delta table exists. Performing MERGE (Upsert)...")
-            delta_table = DeltaTable.forPath(spark, SILVER_DELTA_PATH)
+            delta_table = DeltaTable.forPath(spark, settings.silver_delta_path)
             delta_table.alias("target").merge(
                 source=enriched_df_clean.alias("source"),
                 condition="target.user_session = source.user_session AND target.event_time = source.event_time AND target.product_id = source.product_id AND target.event_type = source.event_type"
@@ -121,7 +121,7 @@ def run_bronze_to_silver(run_date: str, spark: SparkSession | None = None) -> No
                 .format("delta") \
                 .mode("overwrite") \
                 .partitionBy("event_date") \
-                .save(SILVER_DELTA_PATH)
+                .save(settings.silver_delta_path)
 
         logger.info("PySpark Bronze to Silver pipeline ran successfully!")
 

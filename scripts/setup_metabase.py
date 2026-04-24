@@ -1,29 +1,22 @@
-import os
 import sys
 import time
 from pathlib import Path
 from typing import Any
 import requests
 
-# Ensure scripts directory is in sys.path
-SCRIPT_DIR = Path(__file__).resolve().parent
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
+# Ensure project root is in sys.path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils.config import (
-    NEON_DB_HOST,
-    NEON_DB_PORT,
-    NEON_DB_USER,
-    NEON_DB_PASSWORD,
-    NEON_DB_NAME,
-)
-from utils.logger import get_logger
+from scripts.config.settings import settings
+from scripts.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-METABASE_URL = os.getenv("METABASE_URL", "http://localhost:3000")
-ADMIN_EMAIL = os.getenv("METABASE_ADMIN_EMAIL", "admin@ecommerce.local")
-ADMIN_PASSWORD = os.getenv("METABASE_ADMIN_PASSWORD", "AdminPassword123!")
+METABASE_URL = settings.metabase_url
+ADMIN_EMAIL = settings.metabase_admin_email
+ADMIN_PASSWORD = settings.metabase_admin_password
 
 
 def get_metabase_session(base_url: str = METABASE_URL, retries: int = 6, delay: int = 5) -> str | None:
@@ -31,6 +24,10 @@ def get_metabase_session(base_url: str = METABASE_URL, retries: int = 6, delay: 
     Retrieves a valid Metabase admin session token. Completes initial setup wizard
     if first run, or authenticates via existing admin credentials.
     """
+    if not ADMIN_PASSWORD:
+        logger.error("METABASE_ADMIN_PASSWORD is required in environment / .env file.")
+        raise ValueError("METABASE_ADMIN_PASSWORD environment variable is required.")
+
     for attempt in range(1, retries + 1):
         try:
             logger.info("Fetching session properties from Metabase API...")
@@ -106,11 +103,11 @@ def ensure_crm_database(base_url: str, headers: dict[str, str], db_name: str = "
         "name": db_name,
         "engine": "postgres",
         "details": {
-            "host": NEON_DB_HOST,
-            "port": int(NEON_DB_PORT),
-            "db": NEON_DB_NAME,
-            "user": NEON_DB_USER,
-            "password": NEON_DB_PASSWORD,
+            "host": settings.neon_db_host,
+            "port": int(settings.neon_db_port),
+            "db": settings.neon_db_name,
+            "user": settings.neon_db_user,
+            "password": settings.neon_db_password,
             "ssl": True,
             "ssl-mode": "require",
         },
@@ -271,6 +268,10 @@ def main() -> bool:
     """
     Main orchestration routine for Metabase setup and dashboard seeding.
     """
+    if not ADMIN_PASSWORD:
+        logger.error("METABASE_ADMIN_PASSWORD is not configured. Please set METABASE_ADMIN_PASSWORD in .env.")
+        return False
+
     logger.info("Starting Metabase automated setup and dashboard configuration...")
     session_id = get_metabase_session(METABASE_URL)
     if not session_id:
