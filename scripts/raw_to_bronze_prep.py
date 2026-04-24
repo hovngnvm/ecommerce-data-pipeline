@@ -7,13 +7,13 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DoubleType
 from pyspark.sql.functions import col, substring
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils.config import LANDING_DIR, STAGING_DIR
-from utils.logger import get_logger
-from utils.spark import get_spark_session
+from scripts.config.settings import settings
+from scripts.utils.logger import get_logger
+from scripts.utils.spark import get_spark_session
 
 logger = get_logger(__name__)
 
@@ -22,8 +22,8 @@ def run_raw_prep(input_pattern: str | None = None, output_dir: str | None = None
     Reads raw compressed CSV clickstream files, partitions them by year/month/day,
     and writes optimized partitioned Parquet files to the staging directory.
     """
-    pattern = input_pattern or str(Path(LANDING_DIR) / "*.csv.gz")
-    out_dir = output_dir or STAGING_DIR
+    pattern = input_pattern or str(Path(settings.landing_dir) / "*.csv.gz")
+    out_dir = output_dir or settings.staging_dir
 
     logger.info(f"Search pattern for raw files: {pattern}")
     logger.info(f"Output directory: {out_dir}")

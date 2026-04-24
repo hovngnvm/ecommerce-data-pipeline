@@ -3,13 +3,13 @@ from pathlib import Path
 import boto3
 from botocore.client import Config
 
-# Ensure scripts directory is in sys.path
-SCRIPT_DIR = Path(__file__).resolve().parent
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
+# Ensure project root is in sys.path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils.config import MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, STAGING_DIR, BRONZE_BUCKET
-from utils.logger import get_logger
+from scripts.config.settings import settings
+from scripts.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -27,30 +27,30 @@ def run_upload(run_date: str) -> None:
 
     s3 = boto3.resource(
         's3',
-        endpoint_url=MINIO_ENDPOINT,
-        aws_access_key_id=MINIO_ACCESS_KEY,
-        aws_secret_access_key=MINIO_SECRET_KEY,
+        endpoint_url=settings.minio_endpoint,
+        aws_access_key_id=settings.minio_access_key,
+        aws_secret_access_key=settings.minio_secret_key,
         config=Config(signature_version='s3v4'),
         region_name='us-east-1'
     )
 
-    bucket = s3.Bucket(BRONZE_BUCKET)
+    bucket = s3.Bucket(settings.minio_bronze_bucket)
 
-    src_dir = Path(STAGING_DIR) / f"year={year}" / f"month={month}" / f"day={day}"
+    src_dir = Path(settings.staging_dir) / f"year={year}" / f"month={month}" / f"day={day}"
     files = sorted([str(p) for p in src_dir.glob("*.parquet")])
 
     if not files:
         logger.error(f"No staging files found at {src_dir} for date {run_date}")
         raise FileNotFoundError(f"No staging files found at {src_dir} for date {run_date}")
 
-    logger.info(f"Ingesting {len(files)} files to {BRONZE_BUCKET} for date {run_date}...")
+    logger.info(f"Ingesting {len(files)} files to {settings.minio_bronze_bucket} for date {run_date}...")
     for f in files:
         file_name = Path(f).name
         s3_key = f"year={year}/month={month}/day={day}/{file_name}"
-        logger.info(f"    - Uploading {file_name} to s3a://{BRONZE_BUCKET}/{s3_key}...")
+        logger.info(f"    - Uploading {file_name} to s3a://{settings.minio_bronze_bucket}/{s3_key}...")
         bucket.upload_file(f, s3_key)
 
-    logger.info(f"Ingestion to {BRONZE_BUCKET} completed successfully.")
+    logger.info(f"Ingestion to {settings.minio_bronze_bucket} completed successfully.")
 
 def main() -> None:
     if len(sys.argv) < 2:
