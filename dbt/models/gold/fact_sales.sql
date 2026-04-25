@@ -26,7 +26,7 @@ WITH ranked_sales AS (
     {% endif %}
 )
 SELECT
-    md5(concat(event_time::text, '-', user_id::text, '-', product_id::text, '-', user_session, '-', rn::text)) as sale_id,
+    md5(concat(event_time::text, '-', user_id::text, '-', product_id::text, '-', user_session)) as sale_id,
     event_time,
     user_id,
     product_id,
@@ -36,3 +36,4 @@ SELECT
     loyalty_tier,
     acquisition_channel
 FROM ranked_sales
+WHERE rn = 1
