@@ -1,5 +1,7 @@
 import unittest
 import sys
+import importlib
+from unittest.mock import MagicMock, patch
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -9,28 +11,30 @@ if str(BASE_DIR) not in sys.path:
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from utils.config import (
-    NEON_DB_HOST,
-    NEON_DB_PORT,
-    NEON_DB_NAME,
-    DUCKDB_PATH,
-    BRONZE_BUCKET,
-    SILVER_DELTA_PATH,
-    QUARANTINE_PATH
-)
-from utils.logger import get_logger
-from utils.spark import SPARK_PACKAGES
+from scripts.config.settings import settings, get_settings, Settings
+from scripts.utils.logger import get_logger
+from scripts.utils.spark import SPARK_PACKAGES
+from scripts.bootstrap_crm_database import extract_unique_users_from_parquet
 
 class TestUtils(unittest.TestCase):
     def test_config_variables(self):
         """Test essential configuration constants and centralized paths are loaded"""
-        self.assertIsNotNone(NEON_DB_HOST)
-        self.assertEqual(str(NEON_DB_PORT), "5432")
-        self.assertTrue(len(NEON_DB_NAME) > 0)
-        self.assertTrue(DUCKDB_PATH.endswith("gold_warehouse.duckdb"))
-        self.assertEqual(BRONZE_BUCKET, "ecommerce-bronze")
-        self.assertTrue(SILVER_DELTA_PATH.startswith("s3a://"))
-        self.assertTrue(QUARANTINE_PATH.startswith("s3a://"))
+        self.assertIsNotNone(settings.neon_db_host)
+        self.assertEqual(str(settings.neon_db_port), "5432")
+        self.assertTrue(len(settings.neon_db_name) > 0)
+        self.assertTrue(settings.duckdb_path.endswith("gold_warehouse.duckdb"))
+        self.assertEqual(settings.minio_bronze_bucket, "ecommerce-bronze")
+        self.assertTrue(settings.silver_delta_path.startswith("s3a://"))
+        self.assertTrue(settings.quarantine_path.startswith("s3a://"))
+
+    def test_settings_singleton_lru_cache(self):
+        """Test Settings class, pydantic validation, and @lru_cache singleton identity"""
+        s1 = get_settings()
+        s2 = settings
+        self.assertIsInstance(s1, Settings)
+        self.assertIs(s1, s2)
+        self.assertEqual(s1.minio_bronze_bucket, "ecommerce-bronze")
+        self.assertTrue("ecommerce" in s1.neon_db_name)
 
     def test_spark_packages_defined(self):
         """Test Spark package dependencies string is valid"""
@@ -49,9 +53,6 @@ class TestUtils(unittest.TestCase):
 
     def test_entrypoint_imports_contract(self):
         """Contract Test: Ensures all executable pipeline entrypoints and utilities import cleanly"""
-        import importlib
-        from unittest.mock import MagicMock
-
         # Ensure container-only / heavy cloud drivers are safely stubbed if not installed on the local runner
         mock_packages = [
             "boto3",
@@ -75,16 +76,16 @@ class TestUtils(unittest.TestCase):
 
         try:
             modules_to_test = [
-                "utils.config",
-                "utils.db",
-                "utils.logger",
-                "utils.spark",
-                "bootstrap_crm_database",
-                "upload_to_bronze",
-                "bronze_to_silver",
-                "silver_to_olap",
-                "raw_to_bronze_prep",
-                "setup_metabase",
+                "scripts.config.settings",
+                "scripts.utils.db",
+                "scripts.utils.logger",
+                "scripts.utils.spark",
+                "scripts.bootstrap_crm_database",
+                "scripts.upload_to_bronze",
+                "scripts.bronze_to_silver",
+                "scripts.silver_to_olap",
+                "scripts.raw_to_bronze_prep",
+                "scripts.setup_metabase",
             ]
             for module_name in modules_to_test:
                 with self.subTest(module=module_name):
@@ -95,16 +96,11 @@ class TestUtils(unittest.TestCase):
                 if orig is None:
                     sys.modules.pop(pkg, None)
 
-    def test_crm_bootstrap_unique_users_fallback(self):
-        """Contract Test: Ensures extract_unique_users_from_parquet provides a safe fallback when no files exist"""
-        from bootstrap_crm_database import extract_unique_users_from_parquet
-        from unittest.mock import patch
-
+    def test_crm_bootstrap_unique_users_fail_fast_on_empty(self):
+        """Contract Test: Ensures extract_unique_users_from_parquet raises FileNotFoundError when no files exist"""
         with patch("pathlib.Path.rglob", return_value=[]):
-            fallback_ids = extract_unique_users_from_parquet()
-            self.assertEqual(len(fallback_ids), 1000)
-            self.assertIn(1000, fallback_ids)
-            self.assertIn(1999, fallback_ids)
+            with self.assertRaises(FileNotFoundError):
+                extract_unique_users_from_parquet()
 
 if __name__ == "__main__":
     unittest.main()
