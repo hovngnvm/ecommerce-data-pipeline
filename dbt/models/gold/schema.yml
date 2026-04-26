@@ -36,16 +36,56 @@ sources:
           - name: loyalty_tier
             tests:
               - not_null
+              - accepted_values:
+                  values: ['Member', 'Silver', 'Gold', 'Platinum']
 
 models:
   - name: dim_users_loyalty
-    description: "User dimension table integrating loyalty tiers and session activity metrics."
+    description: "User dimension table integrating dynamic loyalty tiers, RFM spend metrics, and session activity."
     columns:
       - name: user_id
         description: "Unique identifier for the user."
         tests:
           - unique
           - not_null
+      - name: loyalty_tier
+        description: "Dynamic loyalty tier computed from accumulated spend and order frequency."
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Member', 'Silver', 'Gold', 'Platinum']
+      - name: total_spend_usd
+        description: "Total accumulated spending in USD."
+        tests:
+          - not_null
+      - name: total_orders
+        description: "Total count of completed purchase transactions."
+        tests:
+          - not_null
+
+  - name: fact_loyalty_progression
+    description: "Fact table tracking SCD Type 2 loyalty tier transitions and upgrade velocity."
+    columns:
+      - name: progression_id
+        description: "Unique surrogate key for the tier transition event."
+        tests:
+          - unique
+          - not_null
+      - name: user_id
+        tests:
+          - relationships:
+              to: ref('dim_users_loyalty')
+              field: user_id
+      - name: current_tier
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Member', 'Silver', 'Gold', 'Platinum']
+      - name: transition_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['INITIAL', 'UPGRADE', 'DOWNGRADE', 'RETAIN']
 
   - name: dim_products
     description: "Product dimension table with cleaned category and brand hierarchies."
@@ -64,6 +104,16 @@ models:
         tests:
           - unique
           - not_null
+      - name: user_id
+        tests:
+          - relationships:
+              to: ref('dim_users_loyalty')
+              field: user_id
+      - name: product_id
+        tests:
+          - relationships:
+              to: ref('dim_products')
+              field: product_id
 
   - name: fact_cart_abandonment
     description: "Fact table tracking cart additions without subsequent purchases."
@@ -73,3 +123,13 @@ models:
         tests:
           - unique
           - not_null
+      - name: user_id
+        tests:
+          - relationships:
+              to: ref('dim_users_loyalty')
+              field: user_id
+      - name: product_id
+        tests:
+          - relationships:
+              to: ref('dim_products')
+              field: product_id

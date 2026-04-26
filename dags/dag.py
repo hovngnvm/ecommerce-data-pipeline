@@ -1,26 +1,30 @@
-import logging
 import sys
 from pathlib import Path
 import requests
 from datetime import datetime, timedelta
+
+# Ensure project root and scripts directory are in sys.path
+DAG_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = DAG_DIR.parent
+SCRIPTS_DIR = PROJECT_DIR / "scripts"
+DBT_DIR = PROJECT_DIR / "dbt"
+
+if str(PROJECT_DIR) not in sys.path:
+    sys.path.insert(0, str(PROJECT_DIR))
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
 
 from airflow import DAG
 from airflow.decorators import task
 from airflow.sdk import Variable
 from airflow.providers.standard.operators.bash import BashOperator
 
-from utils.spark import SPARK_PACKAGES
+from scripts.utils.spark import SPARK_PACKAGES
+from scripts.utils.logger import get_logger
+from scripts.upload_to_bronze import run_upload
+from scripts.silver_to_olap import run_silver_to_olap
 
-logger = logging.getLogger("airflow.task")
-
-# Ensure scripts directory is in sys.path
-DAG_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = DAG_DIR.parent
-SCRIPTS_DIR = PROJECT_DIR / "scripts"
-DBT_DIR = PROJECT_DIR / "dbt"
-
-if str(SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_DIR))
+logger = get_logger(__name__)
 
 def send_telegram_alert(context: dict) -> None:
     """Sends a failure alert via Telegram bot."""
@@ -71,7 +75,6 @@ with DAG(
     @task(task_id='ingest_to_bronze')
     def ingest_to_bronze_task(ds: str | None = None) -> None:
         """Python TaskFlow operator for uploading staging parquet to Bronze MinIO lake"""
-        from upload_to_bronze import run_upload
         run_upload(ds)
 
     # Spark submit task via BashOperator (external CLI process management)
@@ -85,7 +88,6 @@ with DAG(
     @task(task_id='silver_to_olap')
     def silver_to_olap_task(ds: str | None = None) -> None:
         """Python TaskFlow operator for DuckDB OLAP ingestion"""
-        from silver_to_olap import run_silver_to_olap
         run_silver_to_olap(ds)
 
     dbt_build_task = BashOperator(

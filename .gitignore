@@ -37,3 +37,5 @@ ehthumbs.db
 Thumbs.db
 # dbt user profiles
 dbt/.user.yml
+
+docs/
