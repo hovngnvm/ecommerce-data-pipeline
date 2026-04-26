@@ -1,5 +1,9 @@
-from pyspark.sql import SparkSession
+from __future__ import annotations
+from typing import TYPE_CHECKING
 from scripts.config.settings import settings
+
+if TYPE_CHECKING:
+    from pyspark.sql import SparkSession
 
 SPARK_PACKAGES = "org.apache.hadoop:hadoop-aws:3.4.1,io.delta:delta-spark_2.13:4.0.0,org.postgresql:postgresql:42.6.0"
 
@@ -8,6 +12,7 @@ def get_spark_session(app_name: str, memory_limit: str = "1536M") -> SparkSessio
     Initializes and returns a configured local Spark Session with S3/MinIO & Delta Lake settings.
     Tuned for local/Docker execution with optimized shuffle partitions.
     """
+    from pyspark.sql import SparkSession
 
     spark = SparkSession.builder \
         .appName(app_name) \
