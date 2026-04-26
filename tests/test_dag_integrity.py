@@ -13,9 +13,6 @@ class TestDAGIntegrity(unittest.TestCase):
             "airflow.providers.standard",
             "airflow.providers.standard.operators",
             "airflow.providers.standard.operators.bash",
-            "boto3",
-            "botocore",
-            "botocore.client",
         ]
         original_modules = {}
         for mod in mock_modules:

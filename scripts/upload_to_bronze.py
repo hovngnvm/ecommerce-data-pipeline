@@ -1,7 +1,5 @@
 import sys
 from pathlib import Path
-import boto3
-from botocore.client import Config
 
 # Ensure project root is in sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -18,6 +16,9 @@ def run_upload(run_date: str) -> None:
     Uploads daily partitioned Parquet files from local staging directory
     to the Bronze S3/MinIO bucket.
     """
+    import boto3
+    from botocore.client import Config
+
     if not run_date:
         raise ValueError("Missing run date argument YYYY-MM-DD")
 
