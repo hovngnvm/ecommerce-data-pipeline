@@ -14,6 +14,7 @@ def get_spark_session(app_name: str, memory_limit: str = "1536M") -> SparkSessio
     """
     from pyspark.sql import SparkSession
 
+
     spark = SparkSession.builder \
         .appName(app_name) \
         .master("local[*]") \
