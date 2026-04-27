@@ -4,16 +4,10 @@ Scans staging partition directories for unique user IDs, generates synthetic att
 and performs atomic staging swap into Neon PostgreSQL.
 """
 
-import sys
 import random
 from datetime import datetime, timedelta
 from pathlib import Path
-import pandas as pd
-
-# Ensure project root is in sys.path
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+import duckdb
 
 from scripts.config.settings import settings
 from scripts.utils.db import get_db_connection
@@ -33,32 +27,33 @@ DATE_RANGE_DAYS = (END_DATE - START_DATE).days
 
 
 def extract_unique_users_from_parquet() -> set[int]:
-    """Scans all staging parquet partitions and extracts distinct user IDs."""
-    logger.info(f"Scanning staging clickstream directories ({settings.staging_dir}) for unique user_ids...")
-    all_files = sorted([str(p) for p in Path(settings.staging_dir).rglob("*.parquet")])
+    """Scans all staging parquet partitions and extracts distinct user IDs via DuckDB."""
+    staging_path = Path(settings.staging_dir)
+    logger.info(f"Scanning staging clickstream directories ({staging_path}) for unique user_ids...")
 
-    if not all_files:
-        logger.error(f"No parquet files found in {settings.staging_dir}. Aborting bootstrap.")
-        raise FileNotFoundError(f"No clickstream parquet files found in {settings.staging_dir}")
+    if not next(iter(staging_path.rglob("*.parquet")), None):
+        logger.error(f"No parquet files found in {staging_path}. Aborting bootstrap.")
+        raise FileNotFoundError(f"No clickstream parquet files found in {staging_path}")
 
-    user_ids: set[int] = set()
-    logger.info(f"Found {len(all_files)} parquet files. Scanning all files for complete user coverage...")
 
-    for file_path in all_files:
-        try:
-            df = pd.read_parquet(file_path, columns=["user_id"])
-            user_ids.update(df["user_id"].dropna().astype(int).tolist())
-        except Exception as e:
-            logger.error(f"Failed to read parquet file {file_path}: {e}")
-            raise RuntimeError(f"Corrupt or unreadable parquet file {file_path}: {e}") from e
+    try:
+        glob_path = (staging_path / "**" / "*.parquet").as_posix()
+        rows = duckdb.query(f"SELECT DISTINCT user_id FROM read_parquet('{glob_path}') WHERE user_id IS NOT NULL").fetchall()
+        user_ids = {int(r[0]) for r in rows}
+    except Exception as e:
+        logger.error(f"Failed to read parquet files: {e}")
+        raise RuntimeError(f"Corrupt or unreadable parquet file: {e}") from e
+
 
     logger.info(f"Extracted {len(user_ids):,} unique user IDs from clickstream files.")
     return user_ids
 
 
+
 def bootstrap_crm_table(batch_size: int = 10000) -> None:
     """Streams and upserts user loyalty profiles into PostgreSQL."""
-    user_ids = sorted(list(extract_unique_users_from_parquet()))
+    user_ids = sorted(extract_unique_users_from_parquet())
+
 
     if not user_ids:
         logger.error("No user IDs extracted. Aborting bootstrap.")
