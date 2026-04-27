@@ -1,11 +1,6 @@
 import sys
-from pathlib import Path
 import duckdb
 import pandas as pd
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.config.settings import settings
 from scripts.utils.logger import get_logger
@@ -24,14 +19,9 @@ def run_silver_to_olap(run_date: str | None = None, target_duckdb_path: str | No
 
     try:
         logger.info("Fetching CRM users from Neon Postgres...")
-        crm_df = None
         with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT user_id, loyalty_tier, signup_date, acquisition_channel FROM crm.user_loyalty;")
-                crm_rows = cur.fetchall()
-                cols = [desc[0] for desc in cur.description]
-                crm_df = pd.DataFrame(crm_rows, columns=cols)
-                logger.info(f"Fetched {len(crm_df):,} CRM user records from Neon.")
+            crm_df = pd.read_sql("SELECT user_id, loyalty_tier, signup_date, acquisition_channel FROM crm.user_loyalty;", conn)
+            logger.info(f"Fetched {len(crm_df):,} CRM user records from Neon.")
 
         con.register("crm_users_df", crm_df)
 
@@ -54,9 +44,8 @@ def run_silver_to_olap(run_date: str | None = None, target_duckdb_path: str | No
         con.execute("BEGIN TRANSACTION;")
         try:
             con.execute("CREATE SCHEMA IF NOT EXISTS crm;")
-            con.execute("CREATE TABLE IF NOT EXISTS crm.user_loyalty (user_id INTEGER PRIMARY KEY, loyalty_tier VARCHAR, signup_date DATE, acquisition_channel VARCHAR);")
-            con.execute("DELETE FROM crm.user_loyalty;")
-            con.execute("INSERT INTO crm.user_loyalty SELECT user_id, loyalty_tier, signup_date, acquisition_channel FROM crm_users_df;")
+            con.execute("CREATE OR REPLACE TABLE crm.user_loyalty AS SELECT user_id, loyalty_tier, signup_date, acquisition_channel FROM crm_users_df;")
+
 
             con.execute("CREATE SCHEMA IF NOT EXISTS silver;")
             con.execute("""

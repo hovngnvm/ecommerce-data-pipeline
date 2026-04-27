@@ -1,22 +1,16 @@
 import sys
-from pathlib import Path
-from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DoubleType
 from pyspark.sql.functions import col, to_timestamp, to_date, split
 from delta.tables import DeltaTable
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 from scripts.config.settings import settings
 from scripts.utils.logger import get_logger
 from scripts.utils.spark import get_spark_session
-from scripts.utils.db import get_jdbc_config
 
 logger = get_logger(__name__)
 
-def run_bronze_to_silver(run_date: str, spark: SparkSession | None = None) -> None:
+
+def run_bronze_to_silver(run_date: str) -> None:
     """
     Cleans Bronze clickstream Parquet, quarantines invalid rows,
     enriches with Neon Postgres CRM loyalty data, and upserts into Silver Delta Table.
@@ -29,12 +23,9 @@ def run_bronze_to_silver(run_date: str, spark: SparkSession | None = None) -> No
     day = run_date[8:10]
 
     input_path = f"s3a://{settings.minio_bronze_bucket}/year={year}/month={month}/day={day}/*.parquet"
-    should_stop_spark = False
 
-    if spark is None:
-        logger.info(f"Initializing Spark Session for run date: {run_date}...")
-        spark = get_spark_session(f"ECommerce_Bronze_To_Silver_{run_date}", "1536M")
-        should_stop_spark = True
+    logger.info(f"Initializing Spark Session for run date: {run_date}...")
+    spark = get_spark_session(f"ECommerce_Bronze_To_Silver_{run_date}", "1536M")
 
     schema = StructType([
         StructField("event_time", StringType(), True),
@@ -80,7 +71,14 @@ def run_bronze_to_silver(run_date: str, spark: SparkSession | None = None) -> No
             .drop("category_code")
 
         logger.info("Fetching CRM user profiles from Neon Postgres via JDBC...")
-        db_url, db_properties = get_jdbc_config()
+        db_url = f"jdbc:postgresql://{settings.neon_db_host}:{settings.neon_db_port}/{settings.neon_db_name}"
+        db_properties = {
+            "user": settings.neon_db_user,
+            "password": settings.neon_db_password,
+            "driver": "org.postgresql.Driver",
+            "ssl": "true",
+            "sslmode": "require"
+        }
 
         crm_df = spark.read.jdbc(
             url=db_url,
@@ -126,9 +124,9 @@ def run_bronze_to_silver(run_date: str, spark: SparkSession | None = None) -> No
         logger.info("PySpark Bronze to Silver pipeline ran successfully!")
 
     finally:
-        if should_stop_spark and spark is not None:
-            spark.stop()
-            logger.info("Spark Session stopped.")
+        spark.stop()
+        logger.info("Spark Session stopped.")
+
 
 def main() -> None:
     if len(sys.argv) < 2:
@@ -142,5 +140,7 @@ def main() -> None:
         logger.error(f"PySpark pipeline failed: {e}")
         sys.exit(1)
 
+
 if __name__ == "__main__":
     main()
+
