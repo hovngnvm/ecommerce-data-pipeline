@@ -30,10 +30,8 @@ SELECT
     u.total_sessions,
     u.total_orders,
     ROUND(u.total_spend_usd, 2) AS total_spend_usd,
-    CASE
-        WHEN u.total_orders > 0 THEN ROUND(u.total_spend_usd / u.total_orders, 2)
-        ELSE 0.0
-    END AS avg_order_value,
+    COALESCE(ROUND(u.total_spend_usd / NULLIF(u.total_orders, 0), 2), 0.0) AS avg_order_value,
+
     u.first_active_time,
     u.last_active_time,
     u.first_purchase_at,

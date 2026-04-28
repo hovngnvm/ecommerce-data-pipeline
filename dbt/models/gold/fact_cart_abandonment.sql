@@ -11,11 +11,7 @@ WITH cart_events AS (
         price,
         event_time AS cart_time,
         loyalty_tier,
-        acquisition_channel,
-        ROW_NUMBER() OVER (
-            PARTITION BY user_session, product_id, event_time
-            ORDER BY event_time
-        ) as rn
+        acquisition_channel
     FROM {{ ref('stg_events') }}
     WHERE event_type = 'cart'
 ),
@@ -44,5 +40,4 @@ LEFT JOIN purchase_events p
   ON c.user_session = p.user_session
   AND c.product_id = p.product_id
   AND p.purchase_time >= c.cart_time
-WHERE c.rn = 1
-  AND p.user_session IS NULL
+WHERE p.user_session IS NULL

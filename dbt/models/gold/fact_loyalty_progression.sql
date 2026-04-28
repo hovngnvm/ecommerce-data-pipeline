@@ -30,7 +30,6 @@ SELECT
         WHEN previous_tier = 'Member' AND current_tier IN ('Silver', 'Gold', 'Platinum') THEN 'UPGRADE'
         WHEN previous_tier = 'Silver' AND current_tier IN ('Gold', 'Platinum') THEN 'UPGRADE'
         WHEN previous_tier = 'Gold' AND current_tier = 'Platinum' THEN 'UPGRADE'
-        WHEN previous_tier = current_tier THEN 'RETAIN'
         ELSE 'DOWNGRADE'
     END AS transition_type,
     CASE
