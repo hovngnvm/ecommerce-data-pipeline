@@ -9,8 +9,6 @@ x-airflow-common:
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow/airflow
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
-    AIRFLOW_VAR_TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
-    AIRFLOW_VAR_TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
     AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: 30
     AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: 10
     AIRFLOW__SCHEDULER__STANDALONE_DAG_PROCESSOR: "true"
@@ -134,15 +132,7 @@ services:
       airflow-api-server:
         condition: service_healthy
 
-  dbt-docs:
-    image: nginx:1.25-alpine
-    container_name: dbt-docs
-    mem_limit: 32m
-    volumes:
-      - ./dbt/target:/usr/share/nginx/html:ro
-    ports:
-      - "8081:80"
-    restart: always
+
 
   metabase:
     image: metabase/metabase:v0.50.27
