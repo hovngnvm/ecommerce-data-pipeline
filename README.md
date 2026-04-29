@@ -72,7 +72,8 @@ flowchart TD
 * **Data Transformation & Testing:** ![dbt Core](https://img.shields.io/badge/dbt%20Core-1.9.2-FF694B?style=flat&logo=dbt&logoColor=white) (`dbt-duckdb` adapter)
 * **Business Intelligence & Dashboards:** ![Metabase](https://img.shields.io/badge/Metabase-v0.50.27-509EE3?style=flat&logo=metabase&logoColor=white) (Self-service KPI cards & conversion funnels)
 * **Configuration & Validation:** ![Pydantic](https://img.shields.io/badge/Pydantic-v2.10-E92063?style=flat&logo=pydantic&logoColor=white) (`pydantic-settings` singleton)
-* **Unit Testing:** ![pytest](https://img.shields.io/badge/pytest-16%20tests%20passing-0A9EDC?style=flat&logo=pytest&logoColor=white) (In-memory DuckDB test harness)
+* **Unit Testing:** ![pytest](https://img.shields.io/badge/pytest-8%20tests%20passing-0A9EDC?style=flat&logo=pytest&logoColor=white) (In-memory DuckDB test harness)
+
 * **Containerization:** ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat&logo=docker&logoColor=white)
 
 ---
@@ -227,22 +228,14 @@ The pipeline enforces a **Fail-Fast Quality Gate** using **32 automated test ass
 ### 3. Gold Layer Star Schema & Quality Gates (`dbt-duckdb`)
 * **Topological DAG Execution:** Executes `dbt build --fail-fast --store-failures --profiles-dir .` to run model materializations, SCD Type 2 snapshots (`snap_users_loyalty`), and 32 data quality assertions in exact dependency order.
 * **Fail-Fast Quality Gate:** If an upstream staging model violates constraints, dbt halts downstream processing immediately.
-* **Failure Auditing:** Violations are persisted into DuckDB audit tables and trigger Telegram alerts via Airflow's failure callback.
+* **Failure Auditing:** Violations are stored into DuckDB audit tables with fail-fast execution in Airflow.
 
 ### 4. Interactive Self-Service BI (Metabase)
-* Connects to `data/gold_warehouse.duckdb` and Neon Postgres CRM.
-* Bootstrapped via `scripts/setup_metabase.py` to create the **`E-Commerce Overview`** dashboard featuring 7 KPI cards:
-  * Total Gross Revenue ($)
-  * Completed Purchase Orders
-  * Average Order Value (AOV)
-  * Shopping Cart Abandonment Rate (%)
-  * Active Customer Profiles
-  * Revenue Breakdown by Loyalty Tier (Platinum, Gold, Silver, Member)
-  * Channel Performance (Organic, Paid Search, Social, Email)
+* Runs as a service at `http://localhost:3000` via Docker Compose.
+* Directly mounts `data/gold_warehouse.duckdb` and connects to Neon Postgres CRM for ad-hoc analytical queries and visual dashboarding.
 
-### 5. Automated Data Documentation (dbt Docs)
-* Runs `dbt docs generate` at the conclusion of the Airflow DAG.
-* Hosts interactive data lineage graphs and schema definitions via an Nginx container at `http://localhost:8081`.
+### 5. Data Documentation (dbt Docs)
+* Generates interactive data lineage graphs and schema documentation via `dbt docs generate`.
 
 ---
 
@@ -253,8 +246,8 @@ The pipeline enforces a **Fail-Fast Quality Gate** using **32 automated test ass
 * **Modular Codebase:** Clean, decoupled design with callable Python interfaces (`run_upload`, `run_bronze_to_silver`, `run_silver_to_olap`) supporting both standalone CLI debugging and Airflow TaskFlow orchestration.
 * **Dynamic RFM & SCD Type 2 Modeling:** Implements dynamic loyalty tier calculation based on spending thresholds and order frequency, alongside dbt snapshots tracking upgrade velocity (`days_in_previous_tier`).
 * **Shuffle Partition Optimization:** Configured `spark.sql.shuffle.partitions = 4` for local/Docker execution, reducing compute overhead and cutting Delta Lake merge time by 60%+.
-* **Configuration Management:** Centralized Pydantic BaseSettings (`scripts/config/settings.py`) with automatic host vs. Docker network resolution for MinIO endpoints.
-* **Automated Unit Testing:** Fast in-memory DuckDB test harness (`tests/`) verifying transformation queries, category parsing, CRM bootstrapping, and cart abandonment logic in under 15 seconds.
+* **Configuration Management:** Centralized Pydantic BaseSettings (`scripts/config/settings.py`) with automatic environment variable loading from `.env`.
+* **Automated Unit Testing:** Fast test harness (`tests/`) verifying CRM bootstrapping, atomic DuckDB rollback, and environment configuration.
 
 ---
 
@@ -264,7 +257,7 @@ The pipeline enforces a **Fail-Fast Quality Gate** using **32 automated test ass
 ecommerce-medallion-pipeline/
 │
 ├── dags/
-│   └── dag.py                         # Airflow 3 DAG (Incremental TaskFlow + BashOperators + Telegram Alerting)
+│   └── dag.py                         # Airflow 3 DAG (Incremental TaskFlow + BashOperators)
 │
 ├── scripts/                           # Python and PySpark execution scripts
 │   ├── config/                        # Centralized settings & environment configuration
@@ -273,15 +266,14 @@ ecommerce-medallion-pipeline/
 │   ├── utils/                         # Shared utility modules
 │   │   ├── __init__.py
 │   │   ├── logger.py                  # Console and rotating file logging setup
-│   │   ├── db.py                      # psycopg2 context manager & JDBC credentials config
+│   │   ├── db.py                      # psycopg2 context manager
 │   │   └── spark.py                   # Pre-configured PySpark session generator with partition tuning
 │   │
 │   ├── raw_to_bronze_prep.py          # PySpark job to partition raw CSV events locally
 │   ├── bootstrap_crm_database.py      # Seeds extracted CRM users to Neon Postgres
 │   ├── upload_to_bronze.py            # Uploads daily staging parquet to MinIO Bronze bucket
 │   ├── bronze_to_silver.py            # PySpark: Reads Bronze S3, joins CRM JDBC, writes Silver Delta
-│   ├── silver_to_olap.py              # DuckDB Engine: delta_scan() Silver Lake & Syncs Neon CRM into DuckDB DW
-│   └── setup_metabase.py              # Automated REST API setup for Metabase BI platform & dashboards
+│   └── silver_to_olap.py              # DuckDB Engine: delta_scan() Silver Lake & Syncs Neon CRM into DuckDB DW
 │
 ├── dbt/                               # Root dbt project (dbt-duckdb)
 │   ├── models/
@@ -294,20 +286,17 @@ ecommerce-medallion-pipeline/
 │   │       ├── fact_sales.sql         # Deduplicated purchase transaction records (incremental)
 │   │       ├── fact_cart_abandonment.sql # Cart additions without matching purchase
 │   │       ├── fact_loyalty_progression.sql # SCD Type 2 tier transition events & upgrade velocity
-│   │       └── schema.yml             # Schema constraints & 32 data quality test assertions
+│   │       └── schema.yml             # Schema constraints & data quality test assertions
 │   ├── snapshots/
 │   │   └── snap_users_loyalty.sql     # dbt SCD Type 2 snapshot for historical tier tracking
 │   ├── dbt_project.yml
-│   ├── packages.yml
 │   └── profiles.yml                   # dbt profile configuration for DuckDB
 │
-├── tests/                             # Automated unit test suite (16 tests)
-│   ├── conftest.py                    # Pytest fixtures and environment mocks
+├── conftest.py                        # Root sys.path & pytest configuration
+├── tests/                             # Automated unit test suite
 │   ├── test_crm_bootstrap.py          # Tests CRM bootstrap extraction and error boundaries
-│   ├── test_dag_integrity.py          # Tests Airflow DAG structure and import validity
-│   ├── test_etl_logic.py              # Tests category splitting, RFM tiers & abandonment logic
-│   ├── test_silver_to_olap.py         # Tests DuckDB schema creation & atomic transactions
-│   └── test_utils.py                  # Tests config constants, path resolution, and logger
+│   ├── test_silver_to_olap.py         # Tests DuckDB atomic transactions and rollback
+│   └── test_utils.py                  # Tests config constants, singleton identity, and logger
 │
 ├── data/
 │   ├── landing/                       # Landing zone for raw clickstream gzip files
@@ -318,7 +307,7 @@ ecommerce-medallion-pipeline/
 │   └── adversarial_review.md          # Architectural review report & design decisions
 │
 ├── dockerfile                         # Custom Airflow 3 image (adds JRE 17, Spark 4.0, dbt & Python libs)
-├── docker-compose.yml                 # Airflow 3 stack, MinIO S3, MinIO MC, Metabase, dbt-docs Nginx
+├── docker-compose.yml                 # Airflow 3 stack, MinIO S3, MinIO MC, Metabase
 ├── requirements.txt                   # Python dependencies
 └── .env.example                       # Template for environment variables
 ```
@@ -333,7 +322,7 @@ ecommerce-medallion-pipeline/
 git clone <your-repo-url>
 cd ecommerce-medallion-pipeline
 cp .env.example .env
-# Fill out the .env file with your credentials (Neon Postgres, MinIO, Metabase, Telegram)
+# Fill out the .env file with your credentials (Neon Postgres, MinIO)
 ```
 
 ### 2. Prepare Environment & Run Tests
@@ -346,9 +335,10 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 # Install required dependencies
 pip install -r requirements.txt
 
-# Run automated unit test suite (16 unit tests)
+# Run automated unit test suite (8 unit tests)
 pytest -v tests/
 ```
+
 
 ### 3. Initialize Data (One-Time Setup)
 
@@ -374,7 +364,6 @@ This boots:
 * **`airflow-init`:** Migrates the Airflow database schema (`airflow db migrate`).
 * **`airflow-api-server`** / **`airflow-dag-processor`** / **`airflow-scheduler`**: Airflow 3 runtime.
 * **`metabase`:** Self-service BI platform at `http://localhost:3000`.
-* **`dbt-docs`:** Serves the generated data dictionary and lineage graph at `http://localhost:8081`.
 
 ### 5. Trigger Pipeline in Airflow
 
@@ -392,17 +381,15 @@ docker exec -it airflow-scheduler airflow dags trigger --logical-date "2020-01-0
 
 ### 6. Explore Analytics in Metabase BI
 
-Run the automated setup script to register database connections and seed pre-configured analytical dashboards:
-
-```bash
-python scripts/setup_metabase.py
-```
-
-Navigate to **http://localhost:3000** to explore the Metabase dashboards:
-* Login credentials: Username `${METABASE_ADMIN_EMAIL}` (default: `admin@ecommerce.local`) / Password `${METABASE_ADMIN_PASSWORD}` configured in `.env`.
-* View the pre-built **`E-Commerce Overview`** dashboard featuring 7 KPI cards, revenue breakdowns, and cart abandonment funnels.
+Navigate to **http://localhost:3000** to access the self-service BI platform:
+* Complete the initial onboarding wizard in your browser.
+* Connect to the DuckDB Gold Warehouse at `/data/gold_warehouse.duckdb` (read-only mount).
+* Query and visualize Gold models (`dim_users_loyalty`, `dim_products`, `fact_sales`, `fact_cart_abandonment`, `fact_loyalty_progression`).
 
 ### 7. View Data Documentation & Lineage
 
-Explore database schemas, data quality test statuses, and visual lineage graph:
-* Navigate to **http://localhost:8081** (renders after first successful DAG run or manual `dbt docs generate`).
+Generate and explore interactive database schemas and the data lineage graph locally:
+```bash
+cd dbt && dbt docs generate --profiles-dir . && dbt docs serve --profiles-dir .
+```
+
