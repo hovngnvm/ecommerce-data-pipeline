@@ -1,0 +1,75 @@
+version: 2
+
+sources:
+  - name: db_silver        
+    schema: silver         
+    tables:
+      - name: ecommerce_events
+        description: "Bảng chứa dữ liệu clickstream đã được làm sạch ở tầng Silver"
+        columns:
+          - name: event_time
+            tests:
+              - not_null
+          - name: event_type
+            tests:
+              - not_null
+          - name: user_id
+            tests:
+              - not_null
+          - name: product_id
+            tests:
+              - not_null
+          - name: price
+            tests:
+              - not_null
+
+  - name: db_crm
+    schema: crm
+    tables:
+      - name: user_loyalty
+        description: "Bảng chứa dữ liệu Loyalty khách hàng từ Neon CRM"
+        columns:
+          - name: user_id
+            tests:
+              - not_null
+              - unique
+          - name: loyalty_tier
+            tests:
+              - not_null
+
+models:
+  - name: dim_users_loyalty
+    description: "Bảng Dimension khách hàng tích hợp thông tin hạng Loyalty"
+    columns:
+      - name: user_id
+        description: "ID duy nhất của khách hàng"
+        tests:
+          - unique
+          - not_null
+
+  - name: dim_products
+    description: "Bảng Dimension sản phẩm"
+    columns:
+      - name: product_id
+        description: "ID duy nhất của sản phẩm"
+        tests:
+          - unique
+          - not_null
+
+  - name: fact_sales
+    description: "Bảng Fact chứa các giao dịch mua hàng"
+    columns:
+      - name: sale_id
+        description: "ID duy nhất của giao dịch mua"
+        tests:
+          - unique
+          - not_null
+
+  - name: fact_cart_abandonment
+    description: "Bảng Fact phân tích các mặt hàng bị bỏ quên trong giỏ"
+    columns:
+      - name: abandonment_id
+        description: "ID duy nhất của sự kiện bỏ quên giỏ hàng"
+        tests:
+          - unique
+          - not_null

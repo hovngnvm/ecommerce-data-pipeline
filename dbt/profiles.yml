@@ -1,0 +1,13 @@
+ecommerce_dbt:
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('NEON_DB_HOST') }}"
+      port: 5432
+      dbname: "{{ env_var('NEON_DB_NAME') }}"
+      schema: public
+      user: "{{ env_var('NEON_DB_USER') }}"
+      password: "{{ env_var('NEON_DB_PASSWORD') }}"
+      sslmode: require
+      threads: 4
+  target: dev

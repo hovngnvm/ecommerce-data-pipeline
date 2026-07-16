@@ -21,3 +21,12 @@ snapshot-paths: ["snapshots"]
 clean-targets:         # directories to be removed by `dbt clean`
   - "target"
   - "dbt_packages"
+
+# Run VACUUM ANALYZE on PostgreSQL tables at the end of every run to release space and update planner stats.
+on-run-end:
+  - "vacuum analyze silver.ecommerce_events"
+  - "vacuum analyze {{ ref('fact_sales') }}"
+  - "vacuum analyze {{ ref('fact_cart_abandonment') }}"
+  - "vacuum analyze {{ ref('dim_users') }}"
+  - "vacuum analyze {{ ref('dim_users_loyalty') }}"
+  - "vacuum analyze {{ ref('dim_products') }}"
