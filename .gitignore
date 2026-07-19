@@ -25,6 +25,7 @@ data/**
 !data/**/.gitkeep
 
 # OS generated files
+!logs/.gitkeep
 *.log
 .DS_Store
 .DS_Store?

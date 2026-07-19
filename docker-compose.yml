@@ -22,7 +22,7 @@ x-airflow-common:
     # Mount entire project to Airflow working directory
     - ./dags:/opt/airflow/dags
     - ./scripts:/opt/airflow/scripts
-    - ./ecommerce_dbt:/opt/airflow/ecommerce_dbt
+    - ./dbt:/opt/airflow/dbt
     - ./data:/opt/airflow/data
     - ./.env:/opt/airflow/.env
   depends_on:
@@ -30,38 +30,37 @@ x-airflow-common:
       condition: service_healthy
 
 services:
-  setup-env:
-    image: alpine:latest
-    container_name: setup-env
-    user: root
-    volumes:
-      - .:/project
-    command: >
-      sh -c "mkdir -p /project/data/bronze/exchange_rates
-      && mkdir -p /project/data/silver/exchange_rates
-      && mkdir -p /project/data/quarantine
-      && mkdir -p /project/ecommerce_dbt/logs
-      && mkdir -p /project/ecommerce_dbt/target
-      && chmod -R 777 /project/data
-      && chmod -R 777 /project/ecommerce_dbt"
 
-  postgres:
-    image: postgres:15
-    container_name: postgres
-    restart: always
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    mem_limit: 512m
     ports:
-      - "${POSTGRES_PORT}:5432" 
-    env_file:
-      - .env
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
     volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "admin"]
-      interval: 5s
-      retries: 5  
+      - minio_data:/data
+
+  minio-mc:
+    image: minio/mc
+    container_name: minio-mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until (/usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin) do echo 'Waiting for MinIO...' && sleep 1; done;
+      /usr/bin/mc mb --ignore-existing myminio/ecommerce-bronze;
+      /usr/bin/mc mb --ignore-existing myminio/ecommerce-silver;
+      exit 0;
+      "
   postgres-airflow:
     image: postgres:15
     container_name: postgres-airflow
+    mem_limit: 256m
     environment:
       - POSTGRES_USER=airflow
       - POSTGRES_PASSWORD=airflow
@@ -81,12 +80,12 @@ services:
     depends_on:
         postgres-airflow:
           condition: service_healthy
-        setup-env:
-          condition: service_completed_successfully
+
 
   airflow-api-server:
     <<: *airflow-common
     container_name: airflow-api-server
+    mem_limit: 768m
     command: api-server
     ports:
       - "8080:8080"
@@ -106,6 +105,7 @@ services:
   airflow-dag-processor:
     <<: *airflow-common
     container_name: airflow-dag-processor
+    mem_limit: 512m
     command: dag-processor
     restart: always
     depends_on:
@@ -117,6 +117,7 @@ services:
   airflow-scheduler:
     <<: *airflow-common
     container_name: airflow-scheduler
+    mem_limit: 2g
     command: scheduler
     restart: always
     depends_on:
@@ -127,6 +128,17 @@ services:
       airflow-api-server:
         condition: service_healthy
         
+  dbt-docs:
+    image: python:3.12-slim
+    container_name: dbt-docs
+    mem_limit: 128m
+    volumes:
+      - ./dbt/target:/dbt_docs:ro
+    command: python3 -m http.server --directory /dbt_docs 8081
+    ports:
+      - "8081:8081"
+    restart: always
+
 volumes:
-  pgdata:
   postgres-db-airflow:
+  minio_data:
