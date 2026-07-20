@@ -1,60 +1,76 @@
-# 🛒 E-Commerce Medallion Pipeline (Batch Pipeline)
+# 🛒 E-Commerce Medallion Pipeline
 
 ## 📌 Project Overview
 
-A batch **Data Engineering pipeline** built on the Medallion Architecture that ingests raw e-commerce event data, processes and enriches it through Bronze → Silver → Gold layers using Apache Spark, orchestrates daily runs with Apache Airflow, and exposes a clean star schema via dbt for analytics.
+An enterprise-grade **Hybrid Cloud Data Engineering pipeline** built on the Medallion Architecture. This pipeline ingests massive raw e-commerce clickstream events, processes and enriches them through Bronze → Silver → Gold layers, utilizes **Delta Lake** on S3-compatible storage (**MinIO**), connects with **Neon Postgres Cloud** for CRM database integration, orchestrates daily incremental runs with **Apache Airflow 3**, builds a star schema via **dbt Core**, and visualizes business KPIs using a **Streamlit** dashboard.
 
-**Business Goal:** Transform raw e-commerce behavioral events (views, cart additions, purchases) into an analytics-ready star schema — enabling business intelligence on sales performance, user behavior, and multi-currency revenue across product categories.
+**Business Goal:** Transform raw clickstream behavioral logs (views, cart additions, purchases) and join them with Customer Relationship Management (CRM) databases to enable advanced business intelligence on sales performance, customer loyalty tiers, and shopping cart abandonment.
+
+---
 
 ## 🏗️ Architecture & Tech Stack
 
+```mermaid
+flowchart TD
+    subgraph Sources [Data Sources]
+        clickstream["Raw Clickstream Logs<br/>(Daily&nbsp;Parquet)"]:::source
+        crm_db["Neon Postgres CRM<br/>(User&nbsp;Loyalty)"]:::crm
+    end
+
+    subgraph Bronze [Bronze Layer]
+        bronze_s3["MinIO S3 Bucket<br/>(raw_events)"]:::bronze
+    end
+
+    subgraph Spark [Processing Engine]
+        spark_job["Apache Spark<br/>(Clean,&nbsp;Deduplicate&nbsp;&&nbsp;Join)"]:::spark
+    end
+
+    subgraph Silver [Silver Layer]
+        silver_s3["MinIO S3 Delta Lake<br/>(enriched_events)"]:::silver
+        silver_db["Neon Postgres - Silver<br/>(ecommerce_events)"]:::silver
+    end
+
+    subgraph Gold [Gold Layer]
+        gold_db["Neon Postgres - Gold<br/>(Star&nbsp;Schema)"]:::gold
+    end
+
+    subgraph Viz [Analytics & Docs]
+        streamlit["Streamlit Dashboard<br/>(BI&nbsp;Viz)"]:::viz
+        dbt_docs["dbt Data Docs<br/>(Data&nbsp;Dictionary)"]:::viz
+    end
+
+    %% Flow lines
+    clickstream -->|Daily Ingestion| bronze_s3
+    bronze_s3 -->|Spark Read| spark_job
+    crm_db -->|JDBC Read| spark_job
+
+    spark_job -->|Write Delta Lake| silver_s3
+    spark_job -->|"JDBC Append<br/>(Excludes view events)"| silver_db
+
+    silver_db -->|dbt run/compile| gold_db
+
+    gold_db -->|Query & Visualize| streamlit
+    gold_db -.->|Document Lineage| dbt_docs
+
+    %% Style Classes (Tailwind colors with high-contrast text)
+    classDef source fill:#E5E7EB,stroke:#9CA3AF,color:#1F2937,stroke-width:2px;
+    classDef crm fill:#D1FAE5,stroke:#34D399,color:#065F46,stroke-width:2px;
+    classDef bronze fill:#FEF3C7,stroke:#FBBF24,color:#78350F,stroke-width:2px;
+    classDef spark fill:#FFEDD5,stroke:#FB923C,color:#7C2D12,stroke-width:2px;
+    classDef silver fill:#E0F2FE,stroke:#38BDF8,color:#0369A1,stroke-width:2px;
+    classDef gold fill:#FEE2E2,stroke:#F87171,color:#7F1D1D,stroke-width:2px;
+    classDef viz fill:#F3E8FF,stroke:#C084FC,color:#581C87,stroke-width:2px;
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│         Raw Sources: CSV Events + Frankfurter Exchange Rate API  │
-└──────────────┬────────────────────────────┬──────────────────────┘
-               │                            │
-   ┌───────────▼──────────┐    ┌────────────▼──────────────┐
-   │   Bronze Layer       │    │   Bronze Layer            │
-   │  (Raw CSV Events)    │    │  (Raw JSON Exchange Rates)│
-   └───────────┬──────────┘    └────────────┬──────────────┘
-               │  Spark                      │  Spark
-   ┌───────────▼──────────┐    ┌────────────▼──────────────┐
-   │   Silver Layer       │    │   Silver Layer            │
-   │  (Cleaned + Typed    │    │  (Flattened + Typed       │
-   │   Partitioned Parquet│    │   Exchange Rates Parquet) │
-   └───────────┬──────────┘    └────────────┬──────────────┘
-               │                            │
-               └───────────┬────────────────┘
-                           │ JDBC (Spark)
-               ┌───────────▼─────────────────────┐
-               │     PostgreSQL (Docker)         │
-               │  ecommerce_data + exchange_rates│
-               └───────────┬─────────────────────┘
-                           │
-               ┌───────────▼───────────────────┐
-               │   Gold Layer (dbt)            │
-               │  dim_users · dim_products     │
-               │  fact_sales (multi-currency)  │
-               └───────────┬───────────────────┘
-                           │
-               ┌───────────▼───────────────────┐
-               │   Apache Airflow              │
-               │   Daily Orchestration + DAG   │
-               │   Telegram Failure Alerts     │
-               └───────────────────────────────┘
-```
 
-- **Orchestration:** ![Apache Airflow](https://img.shields.io/badge/Apache%20Airflow-3.1-017CEE?style=flat&logo=apacheairflow&logoColor=white)
-- **Batch Processing:** ![Apache Spark](https://img.shields.io/badge/Apache%20Spark-4.0-E25A1C?style=flat&logo=apachespark&logoColor=white)
-- **Transformation:** ![dbt](https://img.shields.io/badge/dbt-1.10-FF694B?style=flat&logo=dbt&logoColor=white)
-- **Data Warehouse:** ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?style=flat&logo=postgresql&logoColor=white)
-- **Containerization:** ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat&logo=docker&logoColor=white)
+* **Orchestration:** ![Apache Airflow](https://img.shields.io/badge/Apache%20Airflow-3.1.2-017CEE?style=flat&logo=apacheairflow&logoColor=white)
+* **Batch Processing:** ![Apache Spark](https://img.shields.io/badge/Apache%20Spark-4.0.1-E25A1C?style=flat&logo=apachespark&logoColor=white)
+* **Storage Layer (Lakehouse):** ![Delta Lake](https://img.shields.io/badge/Delta%20Lake-4.0.0-00ADD8?style=flat&logo=delta-lake&logoColor=white) + ![MinIO](https://img.shields.io/badge/MinIO-S3-C72C48?style=flat&logo=minio&logoColor=white)
+* **Cloud Warehouse:** ![Neon Postgres](https://img.shields.io/badge/Neon%20Postgres-Cloud-00E599?style=flat&logo=postgresql&logoColor=white)
+* **Transformation & Quality:** ![dbt Core](https://img.shields.io/badge/dbt%20Core-1.10.15-FF694B?style=flat&logo=dbt&logoColor=white)
+* **Visualization:** ![Streamlit](https://img.shields.io/badge/Streamlit-1.40-FF4B4B?style=flat&logo=streamlit&logoColor=white)
+* **Containerization:** ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat&logo=docker&logoColor=white)
 
-## 🗂️ Data Sources
-
-**E-Commerce Events (CSV):** Raw behavioral event logs containing user interactions (view, cart, purchase) with product metadata.
-
-**Frankfurter Exchange Rate API:** [`https://api.frankfurter.app`](https://api.frankfurter.app) — Historical daily USD → EUR, JPY rates for October 2019, used to enrich sales data with multi-currency pricing.
+---
 
 ## 📁 Project Structure
 
@@ -62,251 +78,170 @@ A batch **Data Engineering pipeline** built on the Medallion Architecture that i
 ecommerce-medallion-pipeline/
 │
 ├── dags/
-│   └── ecommerce_medallion_dag.py     # Airflow DAG definition + Telegram alerts
+│   └── dag.py                         # Airflow 3 DAG (Incremental execution by date)
 │
-├── scripts/
-│   ├── python/
-│   │   └── fetch_exchange_rates.py    # API ingestion → Bronze JSON
-│   └── spark/
-│       ├── bronze_to_silver_events.py # Clean & partition event CSV
-│       ├── bronze_to_silver_api.py    # Flatten & type exchange rate JSON
-│       └── silver_to_rdbms.py        # Write Silver Parquet → PostgreSQL
+├── scripts/                           # Execution scripts (Python and PySpark)
+│   ├── utils/                         # Centralized shared utility modules
+│   │   ├── __init__.py
+│   │   ├── config.py                  # centralized env loading & paths validation
+│   │   ├── logger.py                  # console and rotating file logging setup
+│   │   ├── db.py                      # psycopg2 context manager & JDBC credentials config
+│   │   └── spark.py                   # pre-configured PySpark session generator
+│   │
+│   ├── raw_to_bronze_prep.py          # PySpark job to partition raw CSV events locally
+│   ├── bootstrap_crm_database.py      # Samples & seeds CRM users to Neon Postgres (dynamic checking)
+│   ├── upload_to_bronze.py            # Helper to upload daily staging file to MinIO Bronze
+│   ├── bronze_to_silver.py            # PySpark: Reads Bronze S3, joins CRM JDBC, writes Silver Delta
+│   ├── silver_to_rdbms.py             # PySpark: Filters views, deletes old date, appends to Neon JDBC
+│   └── app.py                         # Streamlit dashboard querying Neon Postgres Gold
 │
-├── ecommerce_dbt/
+├── dbt/                               # Root dbt project
 │   ├── models/gold/
-│   │   ├── dim_users.sql              # User dimension
-│   │   ├── dim_products.sql           # Product dimension
-│   │   ├── fact_sales.sql             # Purchase fact table (multi-currency)
-│   │   └── schema.yml                 # Sources, models & dbt tests
+│   │   ├── dim_users.sql              # Active user session aggregates
+│   │   ├── dim_products.sql           # Unique product categories & brands (deduplicated)
+│   │   ├── dim_users_loyalty.sql      # User dimension joined with Neon CRM VIP tiers & channels
+│   │   ├── fact_cart_abandonment.sql  # session-level abandoned products (no purchase)
+│   │   ├── fact_sales.sql             # deduplicated purchase transaction records
+│   │   └── schema.yml                 # 16 schema constraints & data quality tests
 │   ├── dbt_project.yml
-│   └── profiles.yml                   # PostgreSQL connection config
+│   └── profiles.yml                   # Neon Postgres connection over SSL
 │
 ├── data/
-│   ├── bronze/
-│   │   ├── ecommerce_events/          # Raw CSV files (mounted volume)
-│   │   └── exchange_rates/            # Raw JSON from API
-│   ├── silver/
-│   │   ├── ecommerce_events/          # Cleaned Parquet (partitioned by date)
-│   │   └── exchange_rates/            # Typed exchange rate Parquet
-│   └── quarantine/                    # Rows failing null checks
+│   ├── landing/                       # Landing zone for raw clickstream gzip files
+│   └── staging/                       # Staging zone for daily partitioned Snappy Parquet files
 │
-├── dockerfile                         # Airflow + Java + Spark image
-├── docker-compose.yml                 # Full stack orchestration
-├── requirements.txt
-└── .env.example                       # Environment variable template
+├── dockerfile                         # Custom Airflow image (adds JRE, Spark 4.0, dbt & Python packages)
+├── docker-compose.yml                 # Airflow V3 stack, MinIO S3 & MC Client
+├── requirements.txt                   # Image python packages (pyspark, delta-spark, dbt, psycopg2)
+└── .env                               # Environment configurations (MinIO & Neon credentials)
 ```
+
+---
 
 ## ⚙️ Pipeline Workflow
 
-### 1. Ingest — Exchange Rate API → Bronze
+### 1. Raw Splitting & CRM Seeding (One-time Setup)
+* **Clickstream Splitting:** Raw multi-gigabyte clickstream gzips are processed via PySpark and partitioned into Snappy-compressed daily Parquet files under `data/staging/` (takes ~3m 20s for 100M events).
+* **CRM Database Seeding:** Scans unique users across clickstream, automatically checks the database storage capacity via SQL (assuming a 512MB limit for Neon Free Tier, or querying the Neon API if API credentials are provided), dynamically downsamples the user base to fit safely within the remaining storage (with a 50MB safety buffer), and seeds them over JDBC into `crm.user_loyalty` on Neon Postgres.
 
-- Fetches historical USD → EUR, JPY rates for October 2019 from the Frankfurter API
-- Saves raw JSON response to `data/bronze/exchange_rates/`
-- Triggered daily by Airflow as the first step in the DAG
+### 2. Daily Ingestion (Airflow Scheduler)
+* **Bronze Ingestion:** Uploads the target run date's Parquet file (`{{ ds }}`) from `staging` to MinIO `ecommerce-bronze` bucket.
+* **Bronze → Silver Delta (Spark):** 
+  * Reads clickstream from S3 Bronze.
+  * Connects to Neon Postgres CRM via JDBC to pull user loyalty tiers and acquisition channels.
+  * Left-joins clickstream with user loyalty data.
+  * Writes the enriched stream to MinIO `ecommerce-silver/ecommerce_events` in **Delta Lake** format.
+* **Silver → Neon RDBMS (Spark JDBC):**
+  * Reads the enriched Silver Delta Lake.
+  * Filters out volume-heavy `view` events (~90% of data) to preserve space on Neon.
+  * Performs an idempotent pre-delete on Neon Postgres for the run date.
+  * Bulk-appends the `cart` and `purchase` events to Neon Postgres `silver.ecommerce_events` via JDBC.
 
-### 2. Bronze → Silver (Spark)
+### 3. Gold Layer Star Schema (dbt Core)
+* Rebuilds the Gold dimension and fact tables on Neon Postgres from the loaded Silver table.
+* Enforces deduplication using window functions (`ROW_NUMBER() OVER`) to handle duplicate event clicks.
+* Runs **16 data quality tests** to guarantee uniqueness, non-nullability, and referential integrity of surrogate keys.
 
-**Events (`bronze_to_silver_events.py`):**
+### 4. Interactive Visualization (Streamlit)
+* Streamlit connects to Neon Postgres and queries the Gold layer star schema.
+* Displays Total Revenue, Active Customers, Items Sold, and Cart Abandonment Rate.
+* Visualizes loyalty distributions, acquisition channel splits, and top-selling brands.
 
-- Reads raw CSV with a predefined schema (avoids slow `inferSchema` on large files)
-- Casts `event_time` to `TIMESTAMP`, derives `event_date`
-- Splits `category_code` → `category` + `sub_category` columns
-- Fills missing `brand`, `category`, `sub_category` with `"unknown"`
-- Routes rows with null critical fields to a **quarantine** Parquet path
-- Writes clean data as Parquet, **partitioned by `event_date`** for query efficiency
+### 5. Automated Data Documentation (dbt Docs)
+* Runs `dbt docs generate` at the end of the Airflow DAG to compile schema definitions.
+* Automatically hosts the interactive lineage graph and data dictionary web application.
 
-**Exchange Rates (`bronze_to_silver_api.py`):**
-
-- Flattens the nested JSON rates object into a flat list of `{event_date, rate_EUR, rate_JPY}` rows
-- Applies explicit schema, casts dates, coalesces to 1 partition (small dataset)
-- Writes to `data/silver/exchange_rates/`
-
-### 3. Silver → PostgreSQL (Spark JDBC)
-
-- Reads both Silver Parquet datasets
-- Writes to PostgreSQL tables `ecommerce_data` and `exchange_rates` via JDBC
-- Uses `batchsize: 10000` for optimized bulk inserts
-- Mode: `overwrite` (suitable for batch reloads; switch to `append` + deduplication for production)
-
-### 4. Gold Layer — dbt Star Schema
-
-- **`dim_users`** — unique users with session counts, first/last seen timestamps
-- **`dim_products`** — unique products with category, sub-category, brand
-- **`fact_sales`** — purchase events joined with exchange rates for EUR/JPY pricing
-- All models materialized as `TABLE`; dbt tests enforce `unique` + `not_null` constraints
-
-### 5. Orchestration — Apache Airflow
-
-- Runs daily on a `timedelta(days=1)` schedule
-- DAG flow:
-  ```
-  ingest_api → api_bronze_to_silver ──┐
-  events_bronze_to_silver ────────────┴──► silver_to_rdbms → dbt_run → dbt_test
-  ```
-- On failure: sends a Telegram alert with task ID, execution date, and truncated error message via Airflow Variables
+---
 
 ## 🚀 Key Engineering Highlights
 
-| Feature                       | Details                                                                                     |
-| ----------------------------- | ------------------------------------------------------------------------------------------- |
-| **Medallion Architecture**    | Bronze → Silver → Gold layers enforce clear data quality boundaries                         |
-| **Schema-on-Read**            | Explicit PySpark schemas on raw CSV avoid costly `inferSchema` scans on large event files   |
-| **Date Partitioning**         | Silver events partitioned by `event_date` — enables partition pruning in downstream queries |
-| **Quarantine Layer**          | Null/invalid rows isolated to a dedicated path instead of being silently dropped            |
-| **Multi-Currency Enrichment** | Exchange rates joined at the Gold layer via dbt for EUR/JPY revenue reporting               |
-| **dbt Data Quality**          | Automated `unique` + `not_null` tests on all dimension keys and fact measures               |
-| **Telegram Alerting**         | Airflow failure callbacks post structured alerts to a Telegram bot via Airflow Variables    |
-| **Containerized**             | All services (Airflow, Spark, Postgres, dbt) run via a single `docker-compose up`           |
+* **Lakehouse Architecture:** Blends MinIO S3 Object Storage with Delta Lake tables for cheap, scalable raw storage.
+* **Neon Cloud Database Optimization:** Restricts RDBMS loads to `cart` and `purchase` events, reducing the storage footprint on Neon by 90%.
+* **Hadoop S3A Integration:** Runs on Spark 4.0.1 and Hadoop 3.4.1. Avoids connection timeout parse bugs by explicitly configuring S3A client parameters in milliseconds.
+* **Data Quality Deduplication:** Leverages window functions in dbt Gold models to ensure surrogate keys (`sale_id`, `abandonment_id`) pass strict uniqueness tests despite clickstream tracking duplication.
+* **Resource Constraint Tuning:** Configures strict Docker container `mem_limit` constraints to optimize memory usage and ensure stable container operation.
+
+---
 
 ## 🛠️ How to Run
 
-### Prerequisites
-
-- Docker & Docker Compose
-
-No local Python, Java, or Spark install required — everything runs inside Docker.
-
-### 1. Clone the Repository
+### 1. Clone and Configure
 
 ```bash
 git clone <your-repo-url>
 cd ecommerce-medallion-pipeline
-```
-
-### 2. Configure Environment Variables
-
-```bash
 cp .env.example .env
-# Then edit .env with your credentials
+# Fill out the .env file with your Neon Postgres cloud host/credentials
 ```
 
-`.env.example`:
+### 2. Prepare Data
 
-```env
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=your_password
-POSTGRES_DB=your_db_name
-POSTGRES_PORT=5433
-
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-TELEGRAM_CHAT_ID=your_chat_id_here
-```
-
-### 3. Place Raw Event Data
-
-Drop your raw e-commerce CSV file(s) into:
-
-```
-data/bronze/ecommerce_events/
-```
-
-### 4. Start the Full Stack
+Create a Python virtual environment, install the required dependencies, place your raw clickstream `.csv.gz` files under `data/landing/`, and run the preparation scripts:
 
 ```bash
-docker-compose up -d
+# Create and activate a virtual environment
+python3 -m venv venv
+source venv/bin/activate  # On Windows use: venv\Scripts\activate
+
+# Install required dependencies
+pip install -r requirements.txt
+
+# 1. Split raw clickstream into daily Parquet logs
+python scripts/raw_to_bronze_prep.py
+
+# 2. Sample and seed Neon Postgres CRM
+python scripts/bootstrap_crm_database.py
 ```
 
-This will start all services in order:
-
-- **`setup-env`** — creates required data directories with correct permissions
-- **`postgres`** — main data warehouse
-- **`postgres-airflow`** — Airflow metadata database
-- **`airflow-init`** — runs `db migrate` to initialize Airflow schema
-- **`airflow-api-server`** — REST API + UI at `http://localhost:8080`
-- **`airflow-dag-processor`** — parses and registers DAGs
-- **`airflow-scheduler`** — triggers DAG runs on schedule
-
-### 5. Access the Airflow UI
-
-This project uses **Apache Airflow 3**, which introduces a new security architecture (`SimpleAuthManager`). Instead of a hard-coded password, Airflow automatically generates a randomized password for the default admin user on the first run.
-
-1. Open your browser and navigate to: **http://localhost:8080**
-2. Retrieve your auto-generated credentials by running:
+### 3. Start the Stack
 
 ```bash
-docker exec -it airflow-api-server cat /opt/airflow/simple_auth_manager_passwords.json.generated
+docker compose up -d
 ```
 
-### 6. Trigger the Pipeline
+This starts:
+* **`minio` & `minio-mc`:** Boots MinIO at `http://localhost:9001` and initializes `ecommerce-bronze` / `ecommerce-silver` buckets.
+* **`postgres-airflow`:** Airflow's metadata backend database.
+* **`airflow-init`:** Migrates the Airflow database schema.
+* **`airflow-api-server`** / **`airflow-dag-processor`** / **`airflow-scheduler`**: Airflow 3 runtime.
+* **`dbt-docs`:** Serves the generated data dictionary and interactive lineage graph at `http://localhost:8081`.
 
-Find `ecommerce_medallion_pipeline` in the Airflow UI and trigger a manual run — or wait for the daily schedule.
+### 4. Login to Airflow
 
-### 7. Monitor Logs
+Airflow 3 uses `SimpleAuthManager` which auto-generates a secure password at start. Retrieve the credentials from the console logs:
 
 ```bash
-# Watch Airflow scheduler activity
-docker logs -f airflow-scheduler
-
-# Watch API server logs
-docker logs -f airflow-api-server
+docker logs airflow-api-server 2>&1 | grep -i password
+# Log in at http://localhost:8080 using username 'admin' and the printed password
 ```
 
-## 📊 Database Schema
+### 5. Trigger the DAG
 
-### Silver Tables (written by Spark)
+You can trigger the pipeline's first execution using either the **Command Line Interface (CLI)** or the **Airflow Web UI**.
 
-#### `ecommerce_data`
+#### Option A: Via Command Line (Fastest)
+Run the following command directly on your host machine to trigger the DAG for the test day `2020-01-01` (specifying the timezone offset to ensure the logical date aligns with the dataset start date):
 
-Cleaned and typed e-commerce event records.
+```bash
+docker exec -it airflow-scheduler airflow dags trigger --logical-date "2020-01-01T08:00:00+07:00" ecommerce_medallion_pipeline
+```
 
-| Column         | Type             | Description                          |
-| -------------- | ---------------- | ------------------------------------ |
-| `event_time`   | TIMESTAMP        | Event timestamp                      |
-| `event_date`   | DATE             | Derived from `event_time`            |
-| `event_type`   | VARCHAR          | `view`, `cart`, or `purchase`        |
-| `product_id`   | INTEGER          | Product identifier                   |
-| `category_id`  | VARCHAR          | Raw category identifier              |
-| `category`     | VARCHAR          | Top-level category (split from code) |
-| `sub_category` | VARCHAR          | Sub-category (split from code)       |
-| `brand`        | VARCHAR          | Product brand (`unknown` if missing) |
-| `price`        | DOUBLE PRECISION | Product price in USD                 |
-| `user_id`      | INTEGER          | User identifier                      |
-| `user_session` | VARCHAR          | Session UUID                         |
+#### Option B: Via Airflow Web UI
+1. Open **http://localhost:8080** and log in (username: `admin`, password retrieved in Step 4).
+2. Click **Trigger** (top right) -> **Trigger DAG w/ config** on the `ecommerce_medallion_pipeline` DAG.
+3. Set the **Logical Date** to **`2020-01-01 08:00:00`** (ensuring the UTC execution date matches `2020-01-01` and is at or after the DAG's start date).
+4. Click **Trigger** and monitor the task execution graph.
 
-#### `exchange_rates`
+### 6. Start the Dashboard
 
-Daily USD exchange rates from the Frankfurter API.
+Launch the Streamlit dashboard locally:
 
-| Column       | Type             | Description    |
-| ------------ | ---------------- | -------------- |
-| `event_date` | DATE             | Rate date      |
-| `rate_EUR`   | DOUBLE PRECISION | USD → EUR rate |
-| `rate_JPY`   | DOUBLE PRECISION | USD → JPY rate |
+```bash
+streamlit run scripts/app.py
+```
+View the interactive charts at **http://localhost:8501**.
 
-### Gold Tables (materialized by dbt)
+### 7. View Data Documentation
 
-#### `dim_users`
-
-| Column           | Type      | Description                 |
-| ---------------- | --------- | --------------------------- |
-| `user_id`        | INTEGER   | Unique user identifier (PK) |
-| `total_sessions` | BIGINT    | Number of distinct sessions |
-| `first_seen`     | TIMESTAMP | Earliest recorded event     |
-| `last_seen`      | TIMESTAMP | Most recent recorded event  |
-
-#### `dim_products`
-
-| Column         | Type    | Description                    |
-| -------------- | ------- | ------------------------------ |
-| `product_id`   | INTEGER | Unique product identifier (PK) |
-| `category_id`  | VARCHAR | Raw category identifier        |
-| `category`     | VARCHAR | Top-level category             |
-| `sub_category` | VARCHAR | Sub-category                   |
-| `brand`        | VARCHAR | Product brand                  |
-
-#### `fact_sales`
-
-| Column       | Type             | Description                        |
-| ------------ | ---------------- | ---------------------------------- |
-| `sale_id`    | BIGINT           | Surrogate key (row number)         |
-| `event_time` | TIMESTAMP        | Purchase timestamp                 |
-| `event_type` | VARCHAR          | Always `purchase`                  |
-| `user_id`    | INTEGER          | FK → `dim_users`                   |
-| `product_id` | INTEGER          | FK → `dim_products`                |
-| `price`      | DOUBLE PRECISION | Price in USD                       |
-| `rate_EUR`   | DOUBLE PRECISION | EUR exchange rate on purchase date |
-| `rate_JPY`   | DOUBLE PRECISION | JPY exchange rate on purchase date |
-
-## 📄 License
-
-This project is licensed under the MIT License.
+Explore database schemas, data quality test statuses, and visual lineage graph:
+* Navigate to **http://localhost:8081** (pages will render fully after the first successful pipeline execution).

@@ -1,0 +1,83 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  python-lint-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Lint with flake8
+        run: |
+          # Stop the build if there are Python syntax errors or undefined names
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          # exit-zero treats all errors as warnings
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Static Compilation Check
+        run: |
+          # Use find to dynamically compile existing python files without wildcard failures
+          find scripts dags -name "*.py" | xargs python -m py_compile
+
+  dbt-validate:
+    runs-on: ubuntu-latest
+    env:
+      NEON_DB_HOST: localhost
+      NEON_DB_NAME: test_db
+      NEON_DB_USER: test_user
+      NEON_DB_PASSWORD: test_password
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dbt
+        run: |
+          pip install dbt-core==1.9.2 dbt-postgres==1.9.1
+
+      - name: Parse dbt Models (Syntax Check)
+        run: |
+          cd dbt
+          dbt parse --profiles-dir .
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Custom Airflow Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./dockerfile
+          push: false
+          tags: custom-airflow:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
